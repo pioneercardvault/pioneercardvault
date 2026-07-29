@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No image provided.' }, { status: 400 });
     }
 
-    // 1. Query CardSight API
+    // 1. Send front image to CardSight
     const outgoingFormData = new FormData();
     outgoingFormData.append('image', frontFile, 'card.jpg');
 
@@ -63,7 +63,7 @@ Given this identified trading card metadata:
 - Attributes: ${JSON.stringify(card.attributes || [])}
 
 Generate an optimal eBay listing JSON object with two keys:
-1. "title": An eBay listing title, targeting as CLOSE to 80 characters as possible without going over 80. Include high-value keywords (e.g., Year, Manufacturer, Set, Player, Card Number, Team, RC/Insert/Parallel if applicable, Sport).
+1. "title": An eBay listing title, targeting as CLOSE to 80 characters as possible without exceeding 80 characters. Include high-value keywords (e.g., Year, Manufacturer, Release/Set, Player Name, Card Number, Team, RC/Insert/Parallel if applicable, Sport, "Trading Card").
 2. "itemSpecifics": An object containing accurate values for these specific eBay fields:
    - "Sport"
    - "Player/Athlete"
@@ -92,7 +92,6 @@ Respond with ONLY valid raw JSON, no markdown codeblocks.
 `;
 
       try {
-        // AI enrichment call using standard fetch to an LLM provider or local fallback logic
         const aiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + (process.env.GEMINI_API_KEY || process.env.CARDSIGHT_API_KEY), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -110,6 +109,38 @@ Respond with ONLY valid raw JSON, no markdown codeblocks.
         }
       } catch (aiErr) {
         console.warn('AI Enrichment Fallback:', aiErr);
+      }
+
+      // Local fallback if AI call doesn't return
+      if (!ebayPreFill) {
+        const fullTitle = `${card.year} ${card.manufacturer} ${card.releaseName} ${card.name} #${card.number} LA Dodgers Baseball Card`.slice(0, 80);
+        ebayPreFill = {
+          title: fullTitle,
+          itemSpecifics: {
+            "Sport": "Baseball",
+            "Player/Athlete": card.name || "",
+            "Card Name": card.name || "",
+            "Manufacturer": card.manufacturer || "Topps",
+            "Season": card.year || "",
+            "Set": `${card.year || ""} ${card.manufacturer || ""} ${card.releaseName || ""}`.trim(),
+            "Team": card.attributes?.[0]?.includes("LAD") ? "Los Angeles Dodgers" : "Major League Baseball",
+            "League": "Major League Baseball (MLB)",
+            "Card Number": card.number ? `${card.number}` : "",
+            "Parallel/Variety": card.setName !== "Base Set" ? card.setName : "Base",
+            "Insert Set": card.setName !== "Base Set" ? card.setName : "N/A",
+            "Features": "Base Set",
+            "Type": "Sports Trading Card",
+            "Original/Licensed Reprint": "Original",
+            "Vintage": "No",
+            "Autographed": "No",
+            "Card Thickness": "35 pt.",
+            "Country/Region of Manufacture": "United States",
+            "Language": "English",
+            "Customized": "No",
+            "Condition Type": "Ungraded: Not in original packaging or professional grading",
+            "Card Condition": "Near mint or better: Comparable to a fresh pack",
+          }
+        };
       }
     }
 

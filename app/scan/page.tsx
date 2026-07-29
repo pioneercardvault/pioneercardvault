@@ -59,14 +59,14 @@ const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<
 export default function CardListerPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  // Step 1 Setup State
+  // Setup State
   const [database, setDatabase] = useState('Sports Trading Cards');
   const [platform, setPlatform] = useState('eBay Fixed Price');
   const [defaultCondition, setDefaultCondition] = useState('Near Mint (NM)');
   const [startPrice, setStartPrice] = useState('');
   const [skuPrefix, setSkuPrefix] = useState('CS-');
 
-  // Step 2 Upload State
+  // Upload State
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
   const [frontPreview, setFrontPreview] = useState<string | null>(null);
@@ -75,11 +75,12 @@ export default function CardListerPage() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Step 3 Results State
+  // Results State
   const [result, setResult] = useState<any>(null);
   const [cardTitle, setCardTitle] = useState('');
   const [listingPrice, setListingPrice] = useState('');
   const [generatedSku, setGeneratedSku] = useState('');
+  const [itemSpecifics, setItemSpecifics] = useState<Record<string, string>>({});
 
   const handleFiles = (files: FileList | File[]) => {
     const fileList = Array.from(files);
@@ -132,8 +133,15 @@ export default function CardListerPage() {
 
       const card = data?.detections?.[0]?.card;
       if (card) {
-        const autoTitle = `${card.year} ${card.manufacturer} ${card.releaseName} ${card.name} #${card.number}`.slice(0, 80);
-        setCardTitle(autoTitle);
+        // Use AI-generated title and specifics if present, else construct full title
+        if (data?.ebayPreFill) {
+          setCardTitle(data.ebayPreFill.title || '');
+          setItemSpecifics(data.ebayPreFill.itemSpecifics || {});
+        } else {
+          const fallbackTitle = `${card.year} ${card.manufacturer} ${card.releaseName} ${card.name} #${card.number} Baseball Card`.slice(0, 80);
+          setCardTitle(fallbackTitle);
+        }
+
         setListingPrice(startPrice || '0.99');
         setGeneratedSku(`${skuPrefix}${Math.random().toString(36).substring(2, 7).toUpperCase()}`);
       }
@@ -146,7 +154,10 @@ export default function CardListerPage() {
     }
   };
 
-  // Open eBay search links for Active or Sold comps
+  const handleSpecificChange = (key: string, value: string) => {
+    setItemSpecifics((prev) => ({ ...prev, [key]: value }));
+  };
+
   const cardMatch = result?.detections?.[0]?.card;
   const searchQuery = cardMatch ? encodeURIComponent(`${cardMatch.year} ${cardMatch.manufacturer} ${cardMatch.name} ${cardMatch.number}`) : '';
 
@@ -162,7 +173,7 @@ export default function CardListerPage() {
     <main className="min-h-screen bg-[#0b0f19] text-slate-100 p-4 md:p-8 font-sans">
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* Header Title */}
+        {/* Header */}
         <div className="flex justify-between items-center border-b border-slate-800 pb-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-white">Ungraded Cards Lister</h1>
@@ -173,7 +184,7 @@ export default function CardListerPage() {
           </div>
         </div>
 
-        {/* 3-Step Wizard Progress Bar */}
+        {/* 3-Step Wizard Navigation */}
         <div className="flex items-center gap-4 text-sm font-semibold">
           <button
             onClick={() => setStep(1)}
@@ -354,29 +365,28 @@ export default function CardListerPage() {
                 disabled={loading}
                 className="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 rounded-lg font-semibold text-sm transition-colors shadow-lg"
               >
-                {loading ? 'Matching Card in Database...' : 'Process Card & Generate Listing'}
+                {loading ? 'Analyzing Card & Generating Full Specifics...' : 'Process Card & Generate Listing'}
               </button>
             </div>
           </form>
         )}
 
-        {/* STEP 3: RESULTS (WORKSTATION DASHBOARD) */}
+        {/* STEP 3: RESULTS & FULL ITEM SPECIFICS */}
         {step === 3 && cardMatch && (
           <div className="space-y-6">
             
-            {/* Export Format Selector Tabs */}
+            {/* Format Selector Tabs */}
             <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto text-xs font-semibold">
               <button className="px-3 py-1.5 bg-blue-600 text-white rounded-md">eBay Fixed Price</button>
               <button className="px-3 py-1.5 bg-slate-800 text-slate-400 rounded-md hover:bg-slate-700">eBay Auctions</button>
               <button className="px-3 py-1.5 bg-slate-800 text-slate-400 rounded-md hover:bg-slate-700">Shopify</button>
-              <button className="px-3 py-1.5 bg-slate-800 text-slate-400 rounded-md hover:bg-slate-700">Whatnot</button>
               <button className="px-3 py-1.5 bg-slate-800 text-slate-400 rounded-md hover:bg-slate-700">TCGPlayer</button>
             </div>
 
-            {/* Main Card Match Row */}
+            {/* Main Workstation Card Row */}
             <div className="bg-[#111827] rounded-xl border border-slate-800 p-4 space-y-4">
               
-              {/* Title Bar Input with 80 character counter */}
+              {/* Title Input (Targeting 80 Chars) */}
               <div className="flex items-center gap-3 bg-[#0b0f19] border border-slate-700 rounded-lg px-3 py-2">
                 <input
                   type="text"
@@ -385,13 +395,15 @@ export default function CardListerPage() {
                   maxLength={80}
                   className="w-full bg-transparent text-white text-sm font-semibold focus:outline-none"
                 />
-                <span className="text-xs text-slate-400 font-mono shrink-0">{cardTitle.length}/80</span>
+                <span className={`text-xs font-mono shrink-0 ${cardTitle.length > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {cardTitle.length}/80
+                </span>
               </div>
 
-              {/* Grid: Images, Details, Listing Form, Action Buttons */}
+              {/* Grid: Images, Metadata, Inputs, Actions */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                 
-                {/* Images (Uploaded vs Match) */}
+                {/* Image Previews */}
                 <div className="lg:col-span-3 flex gap-2 justify-center bg-[#0b0f19] p-2 rounded-lg border border-slate-800">
                   {frontPreview && (
                     <div className="text-center">
@@ -405,7 +417,7 @@ export default function CardListerPage() {
                   </div>
                 </div>
 
-                {/* Card Details Metadata */}
+                {/* Database Metadata */}
                 <div className="lg:col-span-3 space-y-1 text-xs bg-[#0b0f19] p-3 rounded-lg border border-slate-800">
                   <p><span className="text-slate-500">Name:</span> <strong className="text-white">{cardMatch.name}</strong></p>
                   <p><span className="text-slate-500">Manufacturer:</span> {cardMatch.manufacturer}</p>
@@ -414,7 +426,7 @@ export default function CardListerPage() {
                   <p><span className="text-slate-500">Card #:</span> #{cardMatch.number}</p>
                 </div>
 
-                {/* Inputs: Price, SKU, Condition */}
+                {/* Form Inputs */}
                 <div className="lg:col-span-3 grid grid-cols-2 gap-2 bg-[#0b0f19] p-3 rounded-lg border border-slate-800 text-xs">
                   <div>
                     <label className="text-slate-400 block mb-1">Price ($)</label>
@@ -448,19 +460,19 @@ export default function CardListerPage() {
                   </div>
                 </div>
 
-                {/* Action & Comp Buttons */}
+                {/* eBay Comp Actions */}
                 <div className="lg:col-span-3 flex flex-col gap-2">
                   <button
                     onClick={openEbayActive}
                     className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold text-xs transition-colors"
                   >
-                    🔍 View Active eBay Listings
+                    🔍 View Active Listings
                   </button>
                   <button
                     onClick={openEbaySold}
                     className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold text-xs transition-colors"
                   >
-                    💰 View Sold eBay Comps
+                    💰 View Sold Comps
                   </button>
                   <button
                     onClick={() => {
@@ -477,24 +489,30 @@ export default function CardListerPage() {
                 </div>
 
               </div>
-            </div>
 
-            {/* Bottom Summary Bar */}
-            <div className="bg-[#111827] rounded-xl border border-slate-800 p-4 grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-xs text-slate-400">Total Cards</p>
-                <p className="text-xl font-bold text-white">1</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Market Value</p>
-                <p className="text-xl font-bold text-emerald-400">${listingPrice || '0.00'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Status</p>
-                <p className="text-xl font-bold text-blue-400">Ready to List</p>
-              </div>
-            </div>
+              {/* Full eBay Item Specifics Grid */}
+              {Object.keys(itemSpecifics).length > 0 && (
+                <div className="pt-4 border-t border-slate-800">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                    Prefilled eBay Item Specifics
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    {Object.entries(itemSpecifics).map(([key, value]) => (
+                      <div key={key} className="bg-[#0b0f19] p-2 rounded border border-slate-800">
+                        <label className="block text-slate-500 text-[10px] mb-0.5">{key}</label>
+                        <input
+                          type="text"
+                          value={value}
+                          onChange={(e) => handleSpecificChange(key, e.target.value)}
+                          className="w-full bg-transparent text-white focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
+            </div>
           </div>
         )}
 
