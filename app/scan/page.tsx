@@ -4,7 +4,6 @@ import { useState, ChangeEvent, FormEvent, DragEvent } from 'react';
 
 export const dynamic = 'force-dynamic';
 
-// Compress image to 1200px max dimension for clear resolution without payload errors
 const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -57,6 +56,29 @@ const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<
   });
 };
 
+// Generate an eBay listing title optimized close to 80 characters
+const buildEbayTitle = (card: any) => {
+  const year = card.year || '';
+  const manufacturer = card.manufacturer || '';
+  const release = card.releaseName || '';
+  const name = card.name || '';
+  const number = card.number ? `#${card.number}` : '';
+  const set = card.setName && card.setName !== 'Base Set' ? card.setName : '';
+  const team = card.attributes?.[0] ? card.attributes[0].replace('MLB-', '') : '';
+  
+  // Base keywords
+  let titleParts = [year, manufacturer, release, name, set, number, team, 'Dodgers', 'Baseball Card'];
+  let rawTitle = titleParts.filter(Boolean).join(' ');
+
+  // If title is longer than 80 chars, truncate cleanly
+  if (rawTitle.length > 80) {
+    titleParts = [year, manufacturer, release, name, number];
+    rawTitle = titleParts.filter(Boolean).join(' ');
+  }
+
+  return rawTitle.slice(0, 80);
+};
+
 export default function ScanPage() {
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
@@ -67,6 +89,10 @@ export default function ScanPage() {
   const [result, setResult] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<'1' | '2'>('2');
+
+  // eBay Form State
+  const [ebayTitle, setEbayTitle] = useState('');
+  const [itemSpecifics, setItemSpecifics] = useState<Record<string, string>>({});
 
   const handleFiles = (files: FileList | File[]) => {
     const fileList = Array.from(files);
@@ -104,6 +130,8 @@ export default function ScanPage() {
     setBackPreview(null);
     setErrorMessage(null);
     setResult(null);
+    setEbayTitle('');
+    setItemSpecifics({});
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -141,6 +169,29 @@ export default function ScanPage() {
       }
 
       setResult(data);
+
+      // Extract card detection and autofill eBay fields
+      const card = data?.detections?.[0]?.card;
+      if (card) {
+        setEbayTitle(buildEbayTitle(card));
+
+        setItemSpecifics({
+          sport: 'Baseball',
+          player: card.name || '',
+          manufacturer: card.manufacturer || 'Topps',
+          season: card.year || '',
+          set: `${card.year || ''} ${card.manufacturer || ''} ${card.releaseName || ''}`.trim(),
+          team: card.attributes?.[0]?.includes('LAD') ? 'Los Angeles Dodgers' : 'Major League Baseball',
+          league: 'Major League Baseball (MLB)',
+          cardNumber: card.number ? `${card.number}` : '',
+          type: 'Sports Trading Card',
+          autographed: 'No',
+          vintage: 'No',
+          originalReprint: 'Original',
+          conditionType: 'Ungraded: Not in original packaging',
+          cardCondition: 'Near mint or better: Comparable to a fresh pack',
+        });
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message || 'Error scanning card.');
@@ -149,13 +200,17 @@ export default function ScanPage() {
     }
   };
 
+  const handleSpecificChange = (key: string, value: string) => {
+    setItemSpecifics((prev) => ({ ...prev, [key]: value }));
+  };
+
   const cardMatch = result?.detections?.[0]?.card;
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
-      <div className="w-full max-w-3xl space-y-6">
+      <div className="w-full max-w-4xl space-y-6">
         <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight">Pioneer Card Scanner</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Pioneer Card Scanner & eBay Lister</h1>
           <p className="text-slate-400 mt-1">
             {mode === '2' ? 'Drag & drop front and back images together' : 'Drag & drop card image'}
           </p>
@@ -260,59 +315,150 @@ export default function ScanPage() {
             disabled={loading}
             className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 rounded-lg font-semibold transition-colors shadow-lg"
           >
-            {loading ? 'Processing Images via AI...' : 'Scan Card'}
+            {loading ? 'Processing Images via AI...' : 'Scan Card & Prefill eBay'}
           </button>
         </form>
 
-        {/* Formatted Card Detection View */}
+        {/* eBay Pre-fill Section */}
         {cardMatch && (
-          <div className="bg-slate-900 p-6 rounded-xl border border-emerald-500/30 space-y-4">
+          <div className="bg-slate-900 p-6 rounded-xl border border-blue-500/40 space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 className="text-xl font-bold text-emerald-400">Card Identified!</h2>
-              <span className="bg-emerald-500/20 text-emerald-400 text-xs px-2.5 py-1 rounded-full font-semibold">
-                High Confidence
+              <h2 className="text-xl font-bold text-blue-400">eBay Listing Pre-fill</h2>
+              <span className="bg-blue-500/20 text-blue-400 text-xs px-2.5 py-1 rounded-full font-semibold">
+                Auto-Generated
               </span>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-              <div>
-                <p className="text-slate-400 text-xs">Player / Card Name</p>
-                <p className="font-semibold text-white text-base">{cardMatch.name || 'N/A'}</p>
+            {/* eBay Item Title Generator */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-sm">
+                <label className="font-semibold text-slate-300">eBay Item Title</label>
+                <span className={`text-xs font-mono ${ebayTitle.length > 80 ? 'text-red-400' : 'text-slate-400'}`}>
+                  {ebayTitle.length} / 80 characters
+                </span>
               </div>
-              <div>
-                <p className="text-slate-400 text-xs">Year</p>
-                <p className="font-semibold text-white text-base">{cardMatch.year || 'N/A'}</p>
+              <input
+                type="text"
+                value={ebayTitle}
+                onChange={(e) => setEbayTitle(e.target.value)}
+                maxLength={80}
+                className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500 font-mono"
+              />
+            </div>
+
+            {/* Condition Section */}
+            <div className="space-y-4 pt-2 border-t border-slate-800">
+              <h3 className="text-md font-semibold text-slate-200">Condition</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Condition Type</label>
+                  <select
+                    value={itemSpecifics.conditionType || ''}
+                    onChange={(e) => handleSpecificChange('conditionType', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white"
+                  >
+                    <option>Ungraded: Not in original packaging or professional grading</option>
+                    <option>Graded: Professionally graded</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Card Condition</label>
+                  <select
+                    value={itemSpecifics.cardCondition || ''}
+                    onChange={(e) => handleSpecificChange('cardCondition', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white"
+                  >
+                    <option>Near mint or better: Comparable to a fresh pack</option>
+                    <option>Excellent: Minor wear</option>
+                    <option>Very Good: Moderate wear</option>
+                    <option>Poor: Severe wear</option>
+                  </select>
+                </div>
               </div>
-              <div>
-                <p className="text-slate-400 text-xs">Manufacturer</p>
-                <p className="font-semibold text-white text-base">{cardMatch.manufacturer || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-slate-400 text-xs">Release</p>
-                <p className="font-semibold text-white text-base">{cardMatch.releaseName || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-slate-400 text-xs">Set Name</p>
-                <p className="font-semibold text-white text-base">{cardMatch.setName || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-slate-400 text-xs">Card Number</p>
-                <p className="font-semibold text-white text-base">#{cardMatch.number || 'N/A'}</p>
+            </div>
+
+            {/* Item Specifics */}
+            <div className="space-y-4 pt-2 border-t border-slate-800">
+              <h3 className="text-md font-semibold text-slate-200">Item Specifics</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Sport</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.sport || ''}
+                    onChange={(e) => handleSpecificChange('sport', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Player / Athlete</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.player || ''}
+                    onChange={(e) => handleSpecificChange('player', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Manufacturer</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.manufacturer || ''}
+                    onChange={(e) => handleSpecificChange('manufacturer', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Season / Year</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.season || ''}
+                    onChange={(e) => handleSpecificChange('season', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Set</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.set || ''}
+                    onChange={(e) => handleSpecificChange('set', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Team</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.team || ''}
+                    onChange={(e) => handleSpecificChange('team', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Card Number</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.cardNumber || ''}
+                    onChange={(e) => handleSpecificChange('cardNumber', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Autographed</label>
+                  <select
+                    value={itemSpecifics.autographed || 'No'}
+                    onChange={(e) => handleSpecificChange('autographed', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white"
+                  >
+                    <option>No</option>
+                    <option>Yes</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
-        )}
-
-        {/* Raw Response Log */}
-        {result && (
-          <details className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 text-xs">
-            <summary className="cursor-pointer font-medium text-slate-400 hover:text-slate-200">
-              View Raw API Response JSON
-            </summary>
-            <pre className="mt-3 bg-slate-950 p-4 rounded-lg overflow-x-auto text-emerald-400 font-mono">
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          </details>
         )}
       </div>
     </main>
