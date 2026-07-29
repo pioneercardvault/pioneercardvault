@@ -2,8 +2,8 @@
 
 import { useState, ChangeEvent, FormEvent } from 'react';
 
-// Helper function to compress images client-side before sending to server
-const compressImage = (file: File, maxWidth = 1200, quality = 0.8): Promise<Blob> => {
+// Client-side image compression helper
+const compressImage = (file: File, maxDimension = 1024, quality = 0.7): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -15,9 +15,16 @@ const compressImage = (file: File, maxWidth = 1200, quality = 0.8): Promise<Blob
         let width = img.width;
         let height = img.height;
 
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
+        if (width > height) {
+          if (width > maxDimension) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          }
+        } else {
+          if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
         }
 
         canvas.width = width;
@@ -86,7 +93,7 @@ export default function ScanPage() {
     try {
       const formData = new FormData();
 
-      // Compress images before sending to prevent 413 Payload Too Large
+      // Compress images before upload
       const compressedFront = await compressImage(frontFile);
       formData.append('front', compressedFront, 'front.jpg');
 

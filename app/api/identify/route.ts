@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import axios from 'axios';
-import FormData from 'form-data';
 
-export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
     const apiKey = process.env.CARDSIGHT_API_KEY;
 
     if (!apiKey) {
@@ -17,44 +13,44 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Forward the payload to CardSight API
-    const cardSightData = new FormData();
-    
-    // Extract front image
-    const frontImage = formData.get('front') || formData.get('file') || formData.get('image');
-    if (frontImage && frontImage instanceof Blob) {
-      const buffer = Buffer.from(await frontImage.arrayBuffer());
-      cardSightData.append('front', buffer, { filename: 'front.jpg' });
+    const incomingFormData = await req.formData();
+    const frontFile = incomingFormData.get('front') as Blob | null;
+    const backFile = incomingFormData.get('back') as Blob | null;
+
+    if (!frontFile) {
+      return NextResponse.json({ error: 'No front image provided' }, { status: 400 });
     }
 
-    // Extract back image if present
-    const backImage = formData.get('back');
-    if (backImage && backImage instanceof Blob) {
-      const buffer = Buffer.from(await backImage.arrayBuffer());
-      cardSightData.append('back', buffer, { filename: 'back.jpg' });
+    const outgoingFormData = new FormData();
+    outgoingFormData.append('front', frontFile, 'front.jpg');
+
+    if (backFile) {
+      outgoingFormData.append('back', backFile, 'back.jpg');
     }
 
-    // Make the request to CardSight API
-    const response = await axios.post('https://api.cardsight.ai/v1/identify', cardSightData, {
+    const response = await fetch('https://api.cardsight.ai/v1/identify', {
+      method: 'POST',
       headers: {
-        ...cardSightData.getHeaders(),
         'X-API-Key': apiKey,
         'Authorization': `Bearer ${apiKey}`,
       },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
+      body: outgoingFormData,
     });
 
-    return NextResponse.json(response.data);
+    const responseData = await response.json();
+
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: 'CardSight API request failed', details: responseData },
+        { status: response.status }
+      );
+    }
+
+    return NextResponse.json(responseData);
   } catch (error: any) {
-    console.error('CardSight API error:', error?.response?.data || error?.message || error);
-    
     return NextResponse.json(
-      { 
-        error: 'Error scanning card', 
-        details: error?.response?.data || error?.message 
-      },
-      { status: error?.response?.status || 500 }
+      { error: 'Internal Server Error', details: error?.message || error },
+      { status: 500 }
     );
   }
 }
