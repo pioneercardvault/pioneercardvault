@@ -16,24 +16,21 @@ export async function POST(req: NextRequest) {
 
     const incomingFormData = await req.formData();
     const frontFile = incomingFormData.get('front') as Blob | null;
-    const backFile = incomingFormData.get('back') as Blob | null;
 
     if (!frontFile) {
-      return NextResponse.json({ error: 'No front image provided.' }, { status: 400 });
+      return NextResponse.json({ error: 'No image provided.' }, { status: 400 });
     }
 
+    // Prepare multipart/form-data for CardSight
     const outgoingFormData = new FormData();
-    outgoingFormData.append('front', frontFile, 'front.jpg');
+    // CardSight expects the form field key to be 'image'
+    outgoingFormData.append('image', frontFile, 'card.jpg');
 
-    if (backFile) {
-      outgoingFormData.append('back', backFile, 'back.jpg');
-    }
-
-    const response = await fetch('https://api.cardsight.ai/v1/identify', {
+    // Make request to CardSight's card identification endpoint
+    const response = await fetch('https://api.cardsight.ai/v1/identify/card', {
       method: 'POST',
       headers: {
-        'x-api-key': apiKey,
-        'Authorization': `Bearer ${apiKey}`,
+        'X-API-Key': apiKey,
       },
       body: outgoingFormData,
     });
@@ -52,6 +49,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(responseData);
   } catch (error: any) {
+    console.error('API Route Error:', error);
     return NextResponse.json(
       { error: 'Internal Server Error', details: error?.message || String(error) },
       { status: 500 }
