@@ -2,7 +2,9 @@
 
 import { useState, ChangeEvent, FormEvent } from 'react';
 
-// Client-side image compression helper
+// Force dynamic rendering so Vercel never caches old frontend code
+export const dynamic = 'force-dynamic';
+
 const compressImage = (file: File, maxDimension = 1024, quality = 0.7): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -93,7 +95,6 @@ export default function ScanPage() {
     try {
       const formData = new FormData();
 
-      // Compress images before upload
       const compressedFront = await compressImage(frontFile);
       formData.append('front', compressedFront, 'front.jpg');
 
