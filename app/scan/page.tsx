@@ -4,8 +4,8 @@ import { useState, ChangeEvent, FormEvent, DragEvent } from 'react';
 
 export const dynamic = 'force-dynamic';
 
-// Scale down to 800px max dimension and 0.65 quality to satisfy CardSight's size limits
-const compressImage = (file: File, maxDimension = 800, quality = 0.65): Promise<Blob> => {
+// Compress image to 1200px max dimension for clear resolution without payload errors
+const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -149,13 +149,15 @@ export default function ScanPage() {
     }
   };
 
+  const cardMatch = result?.detections?.[0]?.card;
+
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
       <div className="w-full max-w-3xl space-y-6">
         <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight">Card Scanner</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Pioneer Card Scanner</h1>
           <p className="text-slate-400 mt-1">
-            {mode === '2' ? 'Drag and drop front and back images together' : 'Drag and drop card image'}
+            {mode === '2' ? 'Drag & drop front and back images together' : 'Drag & drop card image'}
           </p>
         </div>
 
@@ -212,13 +214,13 @@ export default function ScanPage() {
                     {frontPreview && (
                       <div className="flex flex-col items-center">
                         <span className="text-xs text-slate-400 mb-1 font-semibold uppercase">Front</span>
-                        <img src={frontPreview} alt="Front preview" className="h-40 object-contain rounded-md border border-slate-700" />
+                        <img src={frontPreview} alt="Front preview" className="h-44 object-contain rounded-md border border-slate-700" />
                       </div>
                     )}
                     {backPreview && (
                       <div className="flex flex-col items-center">
                         <span className="text-xs text-slate-400 mb-1 font-semibold uppercase">Back</span>
-                        <img src={backPreview} alt="Back preview" className="h-40 object-contain rounded-md border border-slate-700" />
+                        <img src={backPreview} alt="Back preview" className="h-44 object-contain rounded-md border border-slate-700" />
                       </div>
                     )}
                   </div>
@@ -262,13 +264,55 @@ export default function ScanPage() {
           </button>
         </form>
 
+        {/* Formatted Card Detection View */}
+        {cardMatch && (
+          <div className="bg-slate-900 p-6 rounded-xl border border-emerald-500/30 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 className="text-xl font-bold text-emerald-400">Card Identified!</h2>
+              <span className="bg-emerald-500/20 text-emerald-400 text-xs px-2.5 py-1 rounded-full font-semibold">
+                High Confidence
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-slate-400 text-xs">Player / Card Name</p>
+                <p className="font-semibold text-white text-base">{cardMatch.name || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-xs">Year</p>
+                <p className="font-semibold text-white text-base">{cardMatch.year || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-xs">Manufacturer</p>
+                <p className="font-semibold text-white text-base">{cardMatch.manufacturer || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-xs">Release</p>
+                <p className="font-semibold text-white text-base">{cardMatch.releaseName || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-xs">Set Name</p>
+                <p className="font-semibold text-white text-base">{cardMatch.setName || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-xs">Card Number</p>
+                <p className="font-semibold text-white text-base">#{cardMatch.number || 'N/A'}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Raw Response Log */}
         {result && (
-          <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 space-y-4">
-            <h2 className="text-xl font-bold">Scan Results</h2>
-            <pre className="bg-slate-950 p-4 rounded-lg overflow-x-auto text-xs text-green-400">
+          <details className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 text-xs">
+            <summary className="cursor-pointer font-medium text-slate-400 hover:text-slate-200">
+              View Raw API Response JSON
+            </summary>
+            <pre className="mt-3 bg-slate-950 p-4 rounded-lg overflow-x-auto text-emerald-400 font-mono">
               {JSON.stringify(result, null, 2)}
             </pre>
-          </div>
+          </details>
         )}
       </div>
     </main>
