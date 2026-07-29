@@ -56,19 +56,30 @@ const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<
   });
 };
 
-export default function ScanPage() {
+export default function CardListerPage() {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  // Step 1 Setup State
+  const [database, setDatabase] = useState('Sports Trading Cards');
+  const [platform, setPlatform] = useState('eBay Fixed Price');
+  const [defaultCondition, setDefaultCondition] = useState('Near Mint (NM)');
+  const [startPrice, setStartPrice] = useState('');
+  const [skuPrefix, setSkuPrefix] = useState('CS-');
+
+  // Step 2 Upload State
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
   const [frontPreview, setFrontPreview] = useState<string | null>(null);
   const [backPreview, setBackPreview] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [mode, setMode] = useState<'1' | '2'>('2');
 
-  const [ebayTitle, setEbayTitle] = useState('');
-  const [itemSpecifics, setItemSpecifics] = useState<Record<string, string>>({});
+  // Step 3 Results State
+  const [result, setResult] = useState<any>(null);
+  const [cardTitle, setCardTitle] = useState('');
+  const [listingPrice, setListingPrice] = useState('');
+  const [generatedSku, setGeneratedSku] = useState('');
 
   const handleFiles = (files: FileList | File[]) => {
     const fileList = Array.from(files);
@@ -78,267 +89,415 @@ export default function ScanPage() {
       setFrontFile(fileList[0]);
       setFrontPreview(URL.createObjectURL(fileList[0]));
     }
-
-    if (fileList[1] && mode === '2') {
+    if (fileList[1]) {
       setBackFile(fileList[1]);
       setBackPreview(URL.createObjectURL(fileList[1]));
-    }
-  };
-
-  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      handleFiles(e.target.files);
     }
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files) {
-      handleFiles(e.dataTransfer.files);
-    }
+    if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
   };
 
-  const clearImages = () => {
-    setFrontFile(null);
-    setBackFile(null);
-    setFrontPreview(null);
-    setBackPreview(null);
-    setErrorMessage(null);
-    setResult(null);
-    setEbayTitle('');
-    setItemSpecifics({});
-  };
-
-  const handleSubmit = async (e: FormEvent) => {
+  const handleProcessCard = async (e: FormEvent) => {
     e.preventDefault();
     if (!frontFile) {
-      alert('Please upload at least one image.');
+      alert('Please select or drop at least one card image.');
       return;
     }
 
     setLoading(true);
-    setResult(null);
     setErrorMessage(null);
 
     try {
       const formData = new FormData();
-
       const compressedFront = await compressImage(frontFile);
       formData.append('front', compressedFront, 'front.jpg');
 
-      if (mode === '2' && backFile) {
+      if (backFile) {
         const compressedBack = await compressImage(backFile);
         formData.append('back', compressedBack, 'back.jpg');
       }
 
-      const res = await fetch('/api/identify', {
-        method: 'POST',
-        body: formData,
-      });
-
+      const res = await fetch('/api/identify', { method: 'POST', body: formData });
       const data = await res.json();
 
       if (!res.ok) {
-        const detailStr = typeof data?.details === 'object' ? JSON.stringify(data.details, null, 2) : data?.details;
-        throw new Error(`${data?.error || 'Scan failed'}${detailStr ? `\nDetails: ${detailStr}` : ''}`);
+        throw new Error(data?.details?.message || data?.error || 'Failed to identify card');
       }
 
       setResult(data);
 
-      // Use AI enriched eBay data if present, or fallback
-      if (data?.ebayPreFill) {
-        setEbayTitle(data.ebayPreFill.title || '');
-        setItemSpecifics(data.ebayPreFill.itemSpecifics || {});
-      } else {
-        const card = data?.detections?.[0]?.card;
-        if (card) {
-          setEbayTitle(`${card.year} ${card.manufacturer} ${card.releaseName} ${card.name} #${card.number} LA Dodgers Card`);
-          setItemSpecifics({
-            Sport: 'Baseball',
-            'Player/Athlete': card.name || '',
-            Manufacturer: card.manufacturer || 'Topps',
-            Season: card.year || '',
-            Set: `${card.year} ${card.releaseName}`,
-            Team: 'Los Angeles Dodgers',
-            'Card Number': card.number || '',
-          });
-        }
+      const card = data?.detections?.[0]?.card;
+      if (card) {
+        const autoTitle = `${card.year} ${card.manufacturer} ${card.releaseName} ${card.name} #${card.number}`.slice(0, 80);
+        setCardTitle(autoTitle);
+        setListingPrice(startPrice || '0.99');
+        setGeneratedSku(`${skuPrefix}${Math.random().toString(36).substring(2, 7).toUpperCase()}`);
       }
+
+      setStep(3);
     } catch (err: any) {
-      console.error(err);
-      setErrorMessage(err.message || 'Error scanning card.');
+      setErrorMessage(err.message || 'Error processing card.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSpecificChange = (key: string, value: string) => {
-    setItemSpecifics((prev) => ({ ...prev, [key]: value }));
+  // Open eBay search links for Active or Sold comps
+  const cardMatch = result?.detections?.[0]?.card;
+  const searchQuery = cardMatch ? encodeURIComponent(`${cardMatch.year} ${cardMatch.manufacturer} ${cardMatch.name} ${cardMatch.number}`) : '';
+
+  const openEbayActive = () => {
+    window.open(`https://www.ebay.com/sch/i.html?_nkw=${searchQuery}`, '_blank');
   };
 
-  const cardMatch = result?.detections?.[0]?.card;
+  const openEbaySold = () => {
+    window.open(`https://www.ebay.com/sch/i.html?_nkw=${searchQuery}&LH_Sold=1&LH_Complete=1`, '_blank');
+  };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
-      <div className="w-full max-w-4xl space-y-6">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight">Pioneer Card Scanner & eBay Lister</h1>
-          <p className="text-slate-400 mt-1">
-            {mode === '2' ? 'Drag & drop front and back images together' : 'Drag & drop card image'}
-          </p>
+    <main className="min-h-screen bg-[#0b0f19] text-slate-100 p-4 md:p-8 font-sans">
+      <div className="max-w-6xl mx-auto space-y-6">
+        
+        {/* Header Title */}
+        <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-white">Ungraded Cards Lister</h1>
+            <p className="text-slate-400 text-xs mt-1">Upload card images and match them automatically to eBay item specs.</p>
+          </div>
+          <div className="text-xs text-slate-400">
+            Config: <span className="bg-slate-800 px-2 py-1 rounded text-white font-medium">Default</span>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6 bg-slate-900 p-6 rounded-xl border border-slate-800">
-          <div className="flex justify-center gap-4 mb-4">
-            <button
-              type="button"
-              onClick={() => {
-                setMode('1');
-                setBackFile(null);
-                setBackPreview(null);
-              }}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                mode === '1' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              1 Image Mode
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('2')}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                mode === '2' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              2 Image Mode (Front & Back)
-            </button>
-          </div>
-
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-            className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-6 transition-colors min-h-[220px] ${
-              isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-950/50'
+        {/* 3-Step Wizard Progress Bar */}
+        <div className="flex items-center gap-4 text-sm font-semibold">
+          <button
+            onClick={() => setStep(1)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors ${
+              step === 1 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
             }`}
           >
-            <label className="cursor-pointer flex flex-col items-center w-full">
-              {!frontPreview ? (
-                <div className="py-8 text-center space-y-2">
-                  <p className="text-slate-300 font-medium">
-                    Drag & drop {mode === '2' ? 'both card images' : 'card image'} here
-                  </p>
-                  <p className="text-slate-500 text-sm">
-                    or <span className="text-blue-400 underline font-medium">click to browse</span>
-                  </p>
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-black/30 text-xs">1</span> Configure
+          </button>
+          <div className="w-8 h-[2px] bg-slate-800"></div>
+          <button
+            onClick={() => setStep(2)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors ${
+              step === 2 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-black/30 text-xs">2</span> Upload
+          </button>
+          <div className="w-8 h-[2px] bg-slate-800"></div>
+          <button
+            onClick={() => result && setStep(3)}
+            disabled={!result}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-colors ${
+              step === 3 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 opacity-50'
+            }`}
+          >
+            <span className="w-5 h-5 flex items-center justify-center rounded-full bg-black/30 text-xs">3</span> Results
+          </button>
+        </div>
+
+        {/* STEP 1: CONFIGURE */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <div className="bg-[#111827] p-6 rounded-xl border border-slate-800 space-y-4">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">Setup</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Config Page</label>
+                  <select className="w-full bg-[#0b0f19] border border-slate-700 rounded-lg p-2.5 text-sm text-white">
+                    <option>Default</option>
+                  </select>
                 </div>
-              ) : (
-                <div className="w-full flex flex-col items-center space-y-4">
-                  <div className="flex gap-6 justify-center items-center flex-wrap">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Database</label>
+                  <select
+                    value={database}
+                    onChange={(e) => setDatabase(e.target.value)}
+                    className="w-full bg-[#0b0f19] border border-slate-700 rounded-lg p-2.5 text-sm text-white"
+                  >
+                    <option>Sports Trading Cards</option>
+                    <option>English Pokemon</option>
+                    <option>Baseball Cards</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Platform</label>
+                  <select
+                    value={platform}
+                    onChange={(e) => setPlatform(e.target.value)}
+                    className="w-full bg-[#0b0f19] border border-slate-700 rounded-lg p-2.5 text-sm text-white"
+                  >
+                    <option>eBay Fixed Price</option>
+                    <option>eBay Auctions</option>
+                    <option>Shopify</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-[#111827] p-6 rounded-xl border border-slate-800 space-y-4">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">Listing Defaults</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Condition</label>
+                  <select
+                    value={defaultCondition}
+                    onChange={(e) => setDefaultCondition(e.target.value)}
+                    className="w-full bg-[#0b0f19] border border-slate-700 rounded-lg p-2.5 text-sm text-white"
+                  >
+                    <option>Near Mint (NM)</option>
+                    <option>Lightly Played (LP)</option>
+                    <option>Moderately Played (MP)</option>
+                    <option>Heavily Played (HP)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Start Price (optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 0.99"
+                    value={startPrice}
+                    onChange={(e) => setStartPrice(e.target.value)}
+                    className="w-full bg-[#0b0f19] border border-slate-700 rounded-lg p-2.5 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">SKU Prefix</label>
+                  <input
+                    type="text"
+                    value={skuPrefix}
+                    onChange={(e) => setSkuPrefix(e.target.value)}
+                    className="w-full bg-[#0b0f19] border border-slate-700 rounded-lg p-2.5 text-sm text-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={() => setStep(2)}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold text-sm transition-colors shadow-lg"
+              >
+                Next: Upload Cards &rarr;
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2: UPLOAD */}
+        {step === 2 && (
+          <form onSubmit={handleProcessCard} className="space-y-6">
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-8 transition-colors min-h-[260px] ${
+                isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-slate-800 bg-[#111827]'
+              }`}
+            >
+              <label className="cursor-pointer flex flex-col items-center w-full">
+                {!frontPreview ? (
+                  <div className="py-8 text-center space-y-2">
+                    <p className="text-slate-200 font-semibold text-lg">Drag & drop card images here</p>
+                    <p className="text-slate-400 text-sm">Upload front & back together or click to browse</p>
+                  </div>
+                ) : (
+                  <div className="flex gap-6 justify-center items-center">
                     {frontPreview && (
                       <div className="flex flex-col items-center">
-                        <span className="text-xs text-slate-400 mb-1 font-semibold uppercase">Front</span>
-                        <img src={frontPreview} alt="Front preview" className="h-44 object-contain rounded-md border border-slate-700" />
+                        <span className="text-xs text-slate-400 mb-1">Front Image</span>
+                        <img src={frontPreview} alt="Front" className="h-48 object-contain rounded border border-slate-700" />
                       </div>
                     )}
                     {backPreview && (
                       <div className="flex flex-col items-center">
-                        <span className="text-xs text-slate-400 mb-1 font-semibold uppercase">Back</span>
-                        <img src={backPreview} alt="Back preview" className="h-44 object-contain rounded-md border border-slate-700" />
+                        <span className="text-xs text-slate-400 mb-1">Back Image</span>
+                        <img src={backPreview} alt="Back" className="h-48 object-contain rounded border border-slate-700" />
                       </div>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500">Click or drop new files to replace</p>
-                </div>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                multiple={mode === '2'}
-                onChange={handleFileInputChange}
-                className="hidden"
-              />
-            </label>
-          </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => e.target.files && handleFiles(e.target.files)}
+                  className="hidden"
+                />
+              </label>
+            </div>
 
-          {(frontPreview || backPreview) && (
-            <div className="flex justify-end">
+            {errorMessage && (
+              <div className="p-4 bg-red-950/50 border border-red-800 rounded-lg text-red-300 text-sm font-mono">
+                {errorMessage}
+              </div>
+            )}
+
+            <div className="flex justify-between items-center">
               <button
                 type="button"
-                onClick={clearImages}
-                className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+                onClick={() => setStep(1)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium"
               >
-                Clear Images
+                &larr; Back to Setup
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 rounded-lg font-semibold text-sm transition-colors shadow-lg"
+              >
+                {loading ? 'Matching Card in Database...' : 'Process Card & Generate Listing'}
               </button>
             </div>
-          )}
+          </form>
+        )}
 
-          {errorMessage && (
-            <div className="p-4 bg-red-950/50 border border-red-800 rounded-lg text-red-300 text-sm whitespace-pre-wrap font-mono">
-              {errorMessage}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 rounded-lg font-semibold transition-colors shadow-lg"
-          >
-            {loading ? 'Analyzing Card & Generating eBay Details via AI...' : 'Scan Card & Prefill eBay'}
-          </button>
-        </form>
-
-        {/* eBay Pre-fill Section */}
-        {cardMatch && (
-          <div className="bg-slate-900 p-6 rounded-xl border border-blue-500/40 space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 className="text-xl font-bold text-blue-400">eBay Listing Pre-fill</h2>
-              <span className="bg-blue-500/20 text-blue-400 text-xs px-2.5 py-1 rounded-full font-semibold">
-                AI Auto-Generated
-              </span>
+        {/* STEP 3: RESULTS (WORKSTATION DASHBOARD) */}
+        {step === 3 && cardMatch && (
+          <div className="space-y-6">
+            
+            {/* Export Format Selector Tabs */}
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto text-xs font-semibold">
+              <button className="px-3 py-1.5 bg-blue-600 text-white rounded-md">eBay Fixed Price</button>
+              <button className="px-3 py-1.5 bg-slate-800 text-slate-400 rounded-md hover:bg-slate-700">eBay Auctions</button>
+              <button className="px-3 py-1.5 bg-slate-800 text-slate-400 rounded-md hover:bg-slate-700">Shopify</button>
+              <button className="px-3 py-1.5 bg-slate-800 text-slate-400 rounded-md hover:bg-slate-700">Whatnot</button>
+              <button className="px-3 py-1.5 bg-slate-800 text-slate-400 rounded-md hover:bg-slate-700">TCGPlayer</button>
             </div>
 
-            {/* Title Section */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-sm">
-                <label className="font-semibold text-slate-300">eBay Item Title</label>
-                <span className={`text-xs font-mono ${ebayTitle.length > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
-                  {ebayTitle.length} / 80 characters
-                </span>
-              </div>
-              <input
-                type="text"
-                value={ebayTitle}
-                onChange={(e) => setEbayTitle(e.target.value)}
-                maxLength={80}
-                className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500 font-mono"
-              />
-            </div>
-
-            {/* Dynamic Specifics Grid */}
-            <div className="space-y-4 pt-2 border-t border-slate-800">
-              <h3 className="text-md font-semibold text-slate-200">Item Specifics</h3>
+            {/* Main Card Match Row */}
+            <div className="bg-[#111827] rounded-xl border border-slate-800 p-4 space-y-4">
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                {Object.entries(itemSpecifics).map(([key, value]) => (
-                  <div key={key}>
-                    <label className="block text-xs text-slate-400 mb-1">{key}</label>
+              {/* Title Bar Input with 80 character counter */}
+              <div className="flex items-center gap-3 bg-[#0b0f19] border border-slate-700 rounded-lg px-3 py-2">
+                <input
+                  type="text"
+                  value={cardTitle}
+                  onChange={(e) => setCardTitle(e.target.value)}
+                  maxLength={80}
+                  className="w-full bg-transparent text-white text-sm font-semibold focus:outline-none"
+                />
+                <span className="text-xs text-slate-400 font-mono shrink-0">{cardTitle.length}/80</span>
+              </div>
+
+              {/* Grid: Images, Details, Listing Form, Action Buttons */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                
+                {/* Images (Uploaded vs Match) */}
+                <div className="lg:col-span-3 flex gap-2 justify-center bg-[#0b0f19] p-2 rounded-lg border border-slate-800">
+                  {frontPreview && (
+                    <div className="text-center">
+                      <span className="text-[10px] text-slate-500 uppercase font-bold">Uploaded</span>
+                      <img src={frontPreview} alt="Uploaded" className="h-32 object-contain rounded mt-1" />
+                    </div>
+                  )}
+                  <div className="text-center">
+                    <span className="text-[10px] text-emerald-400 uppercase font-bold">Match</span>
+                    <img src={frontPreview} alt="Match" className="h-32 object-contain rounded mt-1 border border-emerald-500/30" />
+                  </div>
+                </div>
+
+                {/* Card Details Metadata */}
+                <div className="lg:col-span-3 space-y-1 text-xs bg-[#0b0f19] p-3 rounded-lg border border-slate-800">
+                  <p><span className="text-slate-500">Name:</span> <strong className="text-white">{cardMatch.name}</strong></p>
+                  <p><span className="text-slate-500">Manufacturer:</span> {cardMatch.manufacturer}</p>
+                  <p><span className="text-slate-500">Set:</span> {cardMatch.releaseName || cardMatch.setName}</p>
+                  <p><span className="text-slate-500">Year:</span> {cardMatch.year}</p>
+                  <p><span className="text-slate-500">Card #:</span> #{cardMatch.number}</p>
+                </div>
+
+                {/* Inputs: Price, SKU, Condition */}
+                <div className="lg:col-span-3 grid grid-cols-2 gap-2 bg-[#0b0f19] p-3 rounded-lg border border-slate-800 text-xs">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Price ($)</label>
                     <input
                       type="text"
-                      value={value}
-                      onChange={(e) => handleSpecificChange(key, e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                      value={listingPrice}
+                      onChange={(e) => setListingPrice(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-emerald-400 font-bold"
                     />
                   </div>
-                ))}
+                  <div>
+                    <label className="text-slate-400 block mb-1">Condition</label>
+                    <select
+                      value={defaultCondition}
+                      onChange={(e) => setDefaultCondition(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-1 text-white"
+                    >
+                      <option>NM</option>
+                      <option>LP</option>
+                      <option>MP</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-slate-400 block mb-1">SKU</label>
+                    <input
+                      type="text"
+                      value={generatedSku}
+                      onChange={(e) => setGeneratedSku(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Action & Comp Buttons */}
+                <div className="lg:col-span-3 flex flex-col gap-2">
+                  <button
+                    onClick={openEbayActive}
+                    className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold text-xs transition-colors"
+                  >
+                    🔍 View Active eBay Listings
+                  </button>
+                  <button
+                    onClick={openEbaySold}
+                    className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold text-xs transition-colors"
+                  >
+                    💰 View Sold eBay Comps
+                  </button>
+                  <button
+                    onClick={() => {
+                      setStep(2);
+                      setFrontFile(null);
+                      setBackFile(null);
+                      setFrontPreview(null);
+                      setBackPreview(null);
+                    }}
+                    className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-semibold text-xs"
+                  >
+                    Scan Next Card
+                  </button>
+                </div>
+
               </div>
             </div>
+
+            {/* Bottom Summary Bar */}
+            <div className="bg-[#111827] rounded-xl border border-slate-800 p-4 grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-xs text-slate-400">Total Cards</p>
+                <p className="text-xl font-bold text-white">1</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Market Value</p>
+                <p className="text-xl font-bold text-emerald-400">${listingPrice || '0.00'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Status</p>
+                <p className="text-xl font-bold text-blue-400">Ready to List</p>
+              </div>
+            </div>
+
           </div>
         )}
+
       </div>
     </main>
   );
