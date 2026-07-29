@@ -4,7 +4,6 @@ import { useState, ChangeEvent, FormEvent, DragEvent } from 'react';
 
 export const dynamic = 'force-dynamic';
 
-// Compression helper to keep payloads under Vercel limits
 const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -65,19 +64,18 @@ export default function ScanPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<any>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<'1' | '2'>('2');
 
   const handleFiles = (files: FileList | File[]) => {
     const fileList = Array.from(files);
     if (fileList.length === 0) return;
 
-    // Set first image as Front
     if (fileList[0]) {
       setFrontFile(fileList[0]);
       setFrontPreview(URL.createObjectURL(fileList[0]));
     }
 
-    // Set second image as Back (if in 2 image mode and present)
     if (fileList[1] && mode === '2') {
       setBackFile(fileList[1]);
       setBackPreview(URL.createObjectURL(fileList[1]));
@@ -103,6 +101,8 @@ export default function ScanPage() {
     setBackFile(null);
     setFrontPreview(null);
     setBackPreview(null);
+    setErrorMessage(null);
+    setResult(null);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -114,6 +114,7 @@ export default function ScanPage() {
 
     setLoading(true);
     setResult(null);
+    setErrorMessage(null);
 
     try {
       const formData = new FormData();
@@ -134,13 +135,14 @@ export default function ScanPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.details?.message || data?.error || 'Failed to scan card.');
+        const detailStr = typeof data?.details === 'object' ? JSON.stringify(data.details, null, 2) : data?.details;
+        throw new Error(`${data?.error || 'Scan failed'}${detailStr ? `\nDetails: ${detailStr}` : ''}`);
       }
 
       setResult(data);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Error scanning card.');
+      setErrorMessage(err.message || 'Error scanning card.');
     } finally {
       setLoading(false);
     }
@@ -182,7 +184,6 @@ export default function ScanPage() {
             </button>
           </div>
 
-          {/* Unified Single Drop Zone */}
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -242,6 +243,12 @@ export default function ScanPage() {
               >
                 Clear Images
               </button>
+            </div>
+          )}
+
+          {errorMessage && (
+            <div className="p-4 bg-red-950/50 border border-red-800 rounded-lg text-red-300 text-sm whitespace-pre-wrap font-mono">
+              {errorMessage}
             </div>
           )}
 

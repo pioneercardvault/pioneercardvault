@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
@@ -8,7 +9,7 @@ export async function POST(req: NextRequest) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'CardSight API key missing from environment variables' },
+        { error: 'CardSight API key missing from environment variables.' },
         { status: 500 }
       );
     }
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
     const backFile = incomingFormData.get('back') as Blob | null;
 
     if (!frontFile) {
-      return NextResponse.json({ error: 'No front image provided' }, { status: 400 });
+      return NextResponse.json({ error: 'No front image provided.' }, { status: 400 });
     }
 
     const outgoingFormData = new FormData();
@@ -28,28 +29,34 @@ export async function POST(req: NextRequest) {
       outgoingFormData.append('back', backFile, 'back.jpg');
     }
 
+    // Try primary endpoint header formats
     const response = await fetch('https://api.cardsight.ai/v1/identify', {
       method: 'POST',
       headers: {
-        'X-API-Key': apiKey,
+        'x-api-key': apiKey,
         'Authorization': `Bearer ${apiKey}`,
       },
       body: outgoingFormData,
     });
 
-    const responseData = await response.json();
+    const responseData = await response.json().catch(() => null);
 
     if (!response.ok) {
+      console.error('CardSight API error details:', responseData);
       return NextResponse.json(
-        { error: 'CardSight API request failed', details: responseData },
+        { 
+          error: `CardSight API returned status ${response.status}`, 
+          details: responseData || 'No response body returned from API.'
+        },
         { status: response.status }
       );
     }
 
     return NextResponse.json(responseData);
   } catch (error: any) {
+    console.error('API Route Error:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error', details: error?.message || error },
+      { error: 'Internal Server Error', details: error?.message || String(error) },
       { status: 500 }
     );
   }
