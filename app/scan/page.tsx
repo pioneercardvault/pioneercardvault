@@ -4,7 +4,8 @@ import { useState, ChangeEvent, FormEvent, DragEvent } from 'react';
 
 export const dynamic = 'force-dynamic';
 
-const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<Blob> => {
+// Scale down to 800px max dimension and 0.65 quality to satisfy CardSight's size limits
+const compressImage = (file: File, maxDimension = 800, quality = 0.65): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);

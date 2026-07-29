@@ -29,7 +29,6 @@ export async function POST(req: NextRequest) {
       outgoingFormData.append('back', backFile, 'back.jpg');
     }
 
-    // Try primary endpoint header formats
     const response = await fetch('https://api.cardsight.ai/v1/identify', {
       method: 'POST',
       headers: {
@@ -42,7 +41,6 @@ export async function POST(req: NextRequest) {
     const responseData = await response.json().catch(() => null);
 
     if (!response.ok) {
-      console.error('CardSight API error details:', responseData);
       return NextResponse.json(
         { 
           error: `CardSight API returned status ${response.status}`, 
@@ -54,7 +52,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(responseData);
   } catch (error: any) {
-    console.error('API Route Error:', error);
     return NextResponse.json(
       { error: 'Internal Server Error', details: error?.message || String(error) },
       { status: 500 }
