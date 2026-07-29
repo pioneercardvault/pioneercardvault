@@ -56,27 +56,30 @@ const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<
   });
 };
 
-// Generate an eBay listing title optimized close to 80 characters
+// Generate an eBay listing title targeted right around 75-80 characters
 const buildEbayTitle = (card: any) => {
   const year = card.year || '';
   const manufacturer = card.manufacturer || '';
   const release = card.releaseName || '';
   const name = card.name || '';
   const number = card.number ? `#${card.number}` : '';
-  const set = card.setName && card.setName !== 'Base Set' ? card.setName : '';
-  const team = card.attributes?.[0] ? card.attributes[0].replace('MLB-', '') : '';
+  const set = card.setName && card.setName !== 'Base Set' ? card.setName : 'Base';
   
-  // Base keywords
-  let titleParts = [year, manufacturer, release, name, set, number, team, 'Dodgers', 'Baseball Card'];
-  let rawTitle = titleParts.filter(Boolean).join(' ');
-
-  // If title is longer than 80 chars, truncate cleanly
-  if (rawTitle.length > 80) {
-    titleParts = [year, manufacturer, release, name, number];
-    rawTitle = titleParts.filter(Boolean).join(' ');
+  let teamName = 'Los Angeles Dodgers';
+  if (card.attributes?.[0]?.includes('LAD')) {
+    teamName = 'LA Dodgers';
   }
 
-  return rawTitle.slice(0, 80);
+  // Keywords ordered by priority
+  const keywords = [year, manufacturer, release, name, number, set, teamName, 'MLB Sports Trading Card'];
+  let title = keywords.filter(Boolean).join(' ');
+
+  if (title.length > 80) {
+    const shortKeywords = [year, manufacturer, release, name, number, 'Base Card', 'LA Dodgers'];
+    title = shortKeywords.filter(Boolean).join(' ');
+  }
+
+  return title.slice(0, 80);
 };
 
 export default function ScanPage() {
@@ -90,7 +93,7 @@ export default function ScanPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<'1' | '2'>('2');
 
-  // eBay Form State
+  // Comprehensive eBay Form State
   const [ebayTitle, setEbayTitle] = useState('');
   const [itemSpecifics, setItemSpecifics] = useState<Record<string, string>>({});
 
@@ -170,25 +173,35 @@ export default function ScanPage() {
 
       setResult(data);
 
-      // Extract card detection and autofill eBay fields
       const card = data?.detections?.[0]?.card;
       if (card) {
         setEbayTitle(buildEbayTitle(card));
 
         setItemSpecifics({
+          // Required / Core Specifics
           sport: 'Baseball',
           player: card.name || '',
+          cardName: card.name || '',
           manufacturer: card.manufacturer || 'Topps',
           season: card.year || '',
           set: `${card.year || ''} ${card.manufacturer || ''} ${card.releaseName || ''}`.trim(),
-          team: card.attributes?.[0]?.includes('LAD') ? 'Los Angeles Dodgers' : 'Major League Baseball',
+          team: card.attributes?.[0]?.includes('LAD') ? 'Los Angeles Dodgers' : 'Major League Baseball (MLB)',
           league: 'Major League Baseball (MLB)',
           cardNumber: card.number ? `${card.number}` : '',
           type: 'Sports Trading Card',
+          
+          // Additional Specifics from Screenshots
+          parallelVariety: card.setName !== 'Base Set' ? card.setName : 'Base',
+          insertSet: card.setName !== 'Base Set' ? card.setName : 'N/A',
+          features: 'Base Set',
           autographed: 'No',
           vintage: 'No',
           originalReprint: 'Original',
-          conditionType: 'Ungraded: Not in original packaging',
+          countryOfOrigin: 'United States',
+          cardThickness: '35 pt.',
+          language: 'English',
+          customized: 'No',
+          conditionType: 'Ungraded: Not in original packaging or professional grading',
           cardCondition: 'Near mint or better: Comparable to a fresh pack',
         });
       }
@@ -329,11 +342,11 @@ export default function ScanPage() {
               </span>
             </div>
 
-            {/* eBay Item Title Generator */}
+            {/* Title Section */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-sm">
                 <label className="font-semibold text-slate-300">eBay Item Title</label>
-                <span className={`text-xs font-mono ${ebayTitle.length > 80 ? 'text-red-400' : 'text-slate-400'}`}>
+                <span className={`text-xs font-mono ${ebayTitle.length > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
                   {ebayTitle.length} / 80 characters
                 </span>
               </div>
@@ -377,7 +390,7 @@ export default function ScanPage() {
               </div>
             </div>
 
-            {/* Item Specifics */}
+            {/* Detailed Item Specifics */}
             <div className="space-y-4 pt-2 border-t border-slate-800">
               <h3 className="text-md font-semibold text-slate-200">Item Specifics</h3>
               
@@ -397,6 +410,15 @@ export default function ScanPage() {
                     type="text"
                     value={itemSpecifics.player || ''}
                     onChange={(e) => handleSpecificChange('player', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Card Name</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.cardName || ''}
+                    onChange={(e) => handleSpecificChange('cardName', e.target.value)}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
                   />
                 </div>
@@ -437,6 +459,15 @@ export default function ScanPage() {
                   />
                 </div>
                 <div>
+                  <label className="block text-xs text-slate-400 mb-1">League</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.league || ''}
+                    onChange={(e) => handleSpecificChange('league', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
                   <label className="block text-xs text-slate-400 mb-1">Card Number</label>
                   <input
                     type="text"
@@ -444,6 +475,64 @@ export default function ScanPage() {
                     onChange={(e) => handleSpecificChange('cardNumber', e.target.value)}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Parallel / Variety</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.parallelVariety || ''}
+                    onChange={(e) => handleSpecificChange('parallelVariety', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Insert Set</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.insertSet || ''}
+                    onChange={(e) => handleSpecificChange('insertSet', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Features</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.features || ''}
+                    onChange={(e) => handleSpecificChange('features', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Type</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.type || ''}
+                    onChange={(e) => handleSpecificChange('type', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Original / Licensed Reprint</label>
+                  <select
+                    value={itemSpecifics.originalReprint || 'Original'}
+                    onChange={(e) => handleSpecificChange('originalReprint', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white"
+                  >
+                    <option>Original</option>
+                    <option>Licensed Reprint</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Vintage</label>
+                  <select
+                    value={itemSpecifics.vintage || 'No'}
+                    onChange={(e) => handleSpecificChange('vintage', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white"
+                  >
+                    <option>No</option>
+                    <option>Yes</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs text-slate-400 mb-1">Autographed</label>
@@ -455,6 +544,24 @@ export default function ScanPage() {
                     <option>No</option>
                     <option>Yes</option>
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Card Thickness</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.cardThickness || ''}
+                    onChange={(e) => handleSpecificChange('cardThickness', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Country / Region of Manufacture</label>
+                  <input
+                    type="text"
+                    value={itemSpecifics.countryOfOrigin || ''}
+                    onChange={(e) => handleSpecificChange('countryOfOrigin', e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                  />
                 </div>
               </div>
             </div>
