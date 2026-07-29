@@ -1,318 +1,196 @@
 'use client';
-import { useState, useRef } from 'react';
 
-export default function Home() {
-  const [imageMode, setImageMode] = useState<'1' | '2'>('2');
+import { useState, ChangeEvent, FormEvent } from 'react';
+
+// Helper function to compress images client-side before sending to server
+const compressImage = (file: File, maxWidth = 1200, quality = 0.8): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context unavailable'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('Image compression failed'));
+            }
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
+};
+
+export default function ScanPage() {
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
   const [frontPreview, setFrontPreview] = useState<string | null>(null);
   const [backPreview, setBackPreview] = useState<string | null>(null);
-  
-  const [sportDatabase, setSportDatabase] = useState('Sports Cards (All)');
-  const [condition, setCondition] = useState('Near Mint (NM)');
-  const [startPrice, setStartPrice] = useState('0.99');
-  const [skuPrefix, setSkuPrefix] = useState('PCV-');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [result, setResult] = useState<any>(null);
+  const [mode, setMode] = useState<'1' | '2'>('2');
 
-  const [cardData, setCardData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Handle Drag & Drop Events
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-
-    const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
-    if (files.length === 0) return;
-
-    if (imageMode === '1') {
-      setFrontFile(files[0]);
-      setFrontPreview(URL.createObjectURL(files[0]));
-    } else {
-      if (files[0]) {
-        setFrontFile(files[0]);
-        setFrontPreview(URL.createObjectURL(files[0]));
-      }
-      if (files[1]) {
-        setBackFile(files[1]);
-        setBackPreview(URL.createObjectURL(files[1]));
-      }
+  const handleFrontChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setFrontFile(file);
+      setFrontPreview(URL.createObjectURL(file));
     }
   };
 
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    if (imageMode === '1') {
-      setFrontFile(files[0]);
-      setFrontPreview(URL.createObjectURL(files[0]));
-    } else {
-      if (files[0]) {
-        setFrontFile(files[0]);
-        setFrontPreview(URL.createObjectURL(files[0]));
-      }
-      if (files[1]) {
-        setBackFile(files[1]);
-        setBackPreview(URL.createObjectURL(files[1]));
-      }
+  const handleBackChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setBackFile(file);
+      setBackPreview(URL.createObjectURL(file));
     }
   };
 
-  const handleScan = async () => {
-    if (!frontFile) return alert('Please upload at least 1 card image!');
-    
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!frontFile) {
+      alert('Please select a front image.');
+      return;
+    }
+
     setLoading(true);
-    setCardData(null);
-
-    const formData = new FormData();
-    formData.append('image', frontFile);
+    setResult(null);
 
     try {
-      const response = await fetch('/api/identify', {
+      const formData = new FormData();
+
+      // Compress images before sending to prevent 413 Payload Too Large
+      const compressedFront = await compressImage(frontFile);
+      formData.append('front', compressedFront, 'front.jpg');
+
+      if (mode === '2' && backFile) {
+        const compressedBack = await compressImage(backFile);
+        formData.append('back', compressedBack, 'back.jpg');
+      }
+
+      const res = await fetch('/api/identify', {
         method: 'POST',
         body: formData,
       });
-      
-      const data = await response.json();
-      
-      if (data.success && data.detections && data.detections.length > 0) {
-        setCardData(data.detections[0].card);
-      } else {
-        alert('Could not identify card details.');
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.details?.message || data?.error || 'Failed to scan card.');
       }
-    } catch (error) {
-      console.error(error);
-      alert('Error scanning card.');
+
+      setResult(data);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Error scanning card.');
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-slate-100 p-6 font-sans">
-      <div className="max-w-4xl mx-auto space-y-6">
-        
-        {/* HEADER */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Pioneer Card Vault</h1>
-            <p className="text-xs text-slate-400">Sports Card Scanner & Automated Lister</p>
-          </div>
-          <div className="bg-slate-900 border border-slate-800 text-slate-300 text-xs px-3 py-1.5 rounded-md font-mono">
-            pioneercardvault.com
-          </div>
+    <main className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
+      <div className="w-full max-w-3xl space-y-6">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold tracking-tight">Card Scanner</h1>
+          <p className="text-slate-400 mt-1">Upload card images to identify</p>
         </div>
 
-        {/* SETUP PANEL */}
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-6">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">SETUP</h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">Database</label>
-              <select 
-                value={sportDatabase}
-                onChange={(e) => setSportDatabase(e.target.value)}
-                className="w-full bg-[#1F2937] border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-              >
-                <option>Sports Cards (All)</option>
-                <option>Baseball</option>
-                <option>Basketball</option>
-                <option>Football</option>
-                <option>Hockey</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">Platform</label>
-              <select className="w-full bg-[#1F2937] border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
-                <option>eBay Fixed Price</option>
-                <option>eBay Auction</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">Condition</label>
-              <select 
-                value={condition}
-                onChange={(e) => setCondition(e.target.value)}
-                className="w-full bg-[#1F2937] border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-              >
-                <option>Near Mint (NM)</option>
-                <option>Excellent (EX)</option>
-                <option>Very Good (VG)</option>
-                <option>Graded (Slab)</option>
-              </select>
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-6 bg-slate-900 p-6 rounded-xl border border-slate-800">
+          <div className="flex justify-center gap-4 mb-4">
+            <button
+              type="button"
+              onClick={() => setMode('1')}
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                mode === '1' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}
+            >
+              1 Image
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('2')}
+              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                mode === '2' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}
+            >
+              2 Images
+            </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-800 pt-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">Start Price ($)</label>
-              <input 
-                type="text" 
-                value={startPrice} 
-                onChange={(e) => setStartPrice(e.target.value)}
-                placeholder="e.g. 0.99"
-                className="w-full bg-[#1F2937] border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">SKU Prefix</label>
-              <input 
-                type="text" 
-                value={skuPrefix} 
-                onChange={(e) => setSkuPrefix(e.target.value)}
-                placeholder="Enter SKU prefix"
-                className="w-full bg-[#1F2937] border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* UPLOAD & DRAG DROP ZONE */}
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
-          
-          {/* Mode Selector Toggle */}
-          <div className="flex justify-center">
-            <div className="bg-[#1F2937] p-1 rounded-lg flex space-x-1 border border-slate-700 text-xs font-semibold">
-              <button 
-                onClick={() => setImageMode('1')}
-                className={`px-4 py-1.5 rounded-md transition-all ${imageMode === '1' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                1 Image
-              </button>
-              <button 
-                onClick={() => setImageMode('2')}
-                className={`px-4 py-1.5 rounded-md transition-all ${imageMode === '2' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                2 Images
-              </button>
-            </div>
-          </div>
-
-          <p className="text-center text-xs text-slate-400">
-            Current mode: {imageMode === '1' ? 'Front Only' : 'Front and Back'}
-          </p>
-
-          {/* Drag & Drop Target Box */}
-          <div 
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[220px] ${
-              isDragging 
-                ? 'border-indigo-500 bg-indigo-950/20' 
-                : 'border-slate-700 bg-[#172033] hover:border-slate-500'
-            }`}
-          >
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileInput} 
-              multiple={imageMode === '2'}
-              accept="image/*" 
-              className="hidden" 
-            />
-
-            {/* Render Image Previews inside the Dropzone if uploaded */}
-            {(frontPreview || backPreview) ? (
-              <div className="flex space-x-4 mb-4">
-                {frontPreview && (
-                  <div className="text-center">
-                    <img src={frontPreview} alt="Front" className="h-32 object-contain rounded border border-slate-700" />
-                    <span className="text-[10px] text-slate-400 mt-1 block">Front</span>
-                  </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 rounded-lg p-4 bg-slate-950/50">
+              <label className="cursor-pointer flex flex-col items-center w-full">
+                <span className="text-sm font-semibold mb-2">Front Image</span>
+                {frontPreview ? (
+                  <img src={frontPreview} alt="Front preview" className="max-h-48 object-contain rounded-md" />
+                ) : (
+                  <div className="py-8 text-slate-500 text-center">Click to upload Front</div>
                 )}
-                {backPreview && imageMode === '2' && (
-                  <div className="text-center">
-                    <img src={backPreview} alt="Back" className="h-32 object-contain rounded border border-slate-700" />
-                    <span className="text-[10px] text-slate-400 mt-1 block">Back</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <svg className="w-10 h-10 mx-auto text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <p className="text-sm font-semibold text-slate-200">
-                  <span className="text-indigo-400">Click to upload</span> or drag and drop
-                </p>
-                <p className="text-xs text-slate-500">
-                  {imageMode === '1' ? 'Upload 1 front image' : 'Upload 2 images (Front & Back)'}
-                </p>
+                <input type="file" accept="image/*" onChange={handleFrontChange} className="hidden" />
+              </label>
+            </div>
+
+            {mode === '2' && (
+              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 rounded-lg p-4 bg-slate-950/50">
+                <label className="cursor-pointer flex flex-col items-center w-full">
+                  <span className="text-sm font-semibold mb-2">Back Image</span>
+                  {backPreview ? (
+                    <img src={backPreview} alt="Back preview" className="max-h-48 object-contain rounded-md" />
+                  ) : (
+                    <div className="py-8 text-slate-500 text-center">Click to upload Back</div>
+                  )}
+                  <input type="file" accept="image/*" onChange={handleBackChange} className="hidden" />
+                </label>
               </div>
             )}
           </div>
 
-          <button 
-            onClick={handleScan}
-            disabled={loading || !frontFile}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg transition-all disabled:opacity-50 cursor-pointer shadow-lg"
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 rounded-lg font-semibold transition-colors shadow-lg"
           >
-            {loading ? 'Processing Images via AI...' : 'Scan & Identify Inventory'}
+            {loading ? 'Processing Images via AI...' : 'Scan Card'}
           </button>
-        </div>
+        </form>
 
-        {/* RESULTS PANEL */}
-        {cardData && (
-          <div className="bg-[#111827] border border-indigo-900/50 rounded-xl p-6 space-y-4">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-indigo-400 border-b border-slate-800 pb-2">
-              Identified Item
-            </h2>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-              <div className="bg-[#1F2937] p-3 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block mb-1">Player</span>
-                <span className="font-bold text-white text-sm">{cardData.name}</span>
-              </div>
-              <div className="bg-[#1F2937] p-3 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block mb-1">Year / Brand</span>
-                <span className="font-semibold text-slate-200">{cardData.year} {cardData.manufacturer} {cardData.releaseName}</span>
-              </div>
-              <div className="bg-[#1F2937] p-3 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block mb-1">Set</span>
-                <span className="font-semibold text-slate-200">{cardData.setName}</span>
-              </div>
-              <div className="bg-[#1F2937] p-3 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block mb-1">Card #</span>
-                <span className="font-semibold text-slate-200">#{cardData.number}</span>
-              </div>
-            </div>
-
-            <div className="bg-[#172033] p-4 rounded-lg border border-slate-800">
-              <span className="text-[10px] text-slate-400 uppercase font-mono block mb-1">Generated Listing Title</span>
-              <p className="font-mono text-xs font-bold text-emerald-400">
-                {cardData.year} {cardData.manufacturer} {cardData.releaseName} {cardData.name} #{cardData.number} {cardData.setName !== 'Base Set' ? cardData.setName : ''}
-              </p>
-            </div>
-
-            <button 
-              onClick={() => alert(`Listing created! Configured for ${condition} at $${startPrice}`)}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition-all cursor-pointer shadow"
-            >
-              Push Listing to eBay
-            </button>
+        {result && (
+          <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 space-y-4">
+            <h2 className="text-xl font-bold">Scan Results</h2>
+            <pre className="bg-slate-950 p-4 rounded-lg overflow-x-auto text-xs text-green-400">
+              {JSON.stringify(result, null, 2)}
+            </pre>
           </div>
         )}
-
       </div>
-    </div>
+    </main>
   );
 }
