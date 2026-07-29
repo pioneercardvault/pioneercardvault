@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, ChangeEvent, FormEvent } from 'react';
+import { useState, ChangeEvent, FormEvent, DragEvent } from 'react';
 
-// Force dynamic rendering so Vercel never caches old frontend code
 export const dynamic = 'force-dynamic';
 
-const compressImage = (file: File, maxDimension = 1024, quality = 0.7): Promise<Blob> => {
+// Compression helper to keep payloads under Vercel limits
+const compressImage = (file: File, maxDimension = 1200, quality = 0.8): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -62,30 +62,53 @@ export default function ScanPage() {
   const [backFile, setBackFile] = useState<File | null>(null);
   const [frontPreview, setFrontPreview] = useState<string | null>(null);
   const [backPreview, setBackPreview] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<any>(null);
   const [mode, setMode] = useState<'1' | '2'>('2');
 
-  const handleFrontChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setFrontFile(file);
-      setFrontPreview(URL.createObjectURL(file));
+  const handleFiles = (files: FileList | File[]) => {
+    const fileList = Array.from(files);
+    if (fileList.length === 0) return;
+
+    // Set first image as Front
+    if (fileList[0]) {
+      setFrontFile(fileList[0]);
+      setFrontPreview(URL.createObjectURL(fileList[0]));
+    }
+
+    // Set second image as Back (if in 2 image mode and present)
+    if (fileList[1] && mode === '2') {
+      setBackFile(fileList[1]);
+      setBackPreview(URL.createObjectURL(fileList[1]));
     }
   };
 
-  const handleBackChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setBackFile(file);
-      setBackPreview(URL.createObjectURL(file));
+  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      handleFiles(e.target.files);
     }
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files) {
+      handleFiles(e.dataTransfer.files);
+    }
+  };
+
+  const clearImages = () => {
+    setFrontFile(null);
+    setBackFile(null);
+    setFrontPreview(null);
+    setBackPreview(null);
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!frontFile) {
-      alert('Please select a front image.');
+      alert('Please upload at least one image.');
       return;
     }
 
@@ -128,19 +151,25 @@ export default function ScanPage() {
       <div className="w-full max-w-3xl space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-bold tracking-tight">Card Scanner</h1>
-          <p className="text-slate-400 mt-1">Upload card images to identify</p>
+          <p className="text-slate-400 mt-1">
+            {mode === '2' ? 'Drag and drop front and back images together' : 'Drag and drop card image'}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6 bg-slate-900 p-6 rounded-xl border border-slate-800">
           <div className="flex justify-center gap-4 mb-4">
             <button
               type="button"
-              onClick={() => setMode('1')}
+              onClick={() => {
+                setMode('1');
+                setBackFile(null);
+                setBackPreview(null);
+              }}
               className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                 mode === '1' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
               }`}
             >
-              1 Image
+              1 Image Mode
             </button>
             <button
               type="button"
@@ -149,37 +178,72 @@ export default function ScanPage() {
                 mode === '2' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
               }`}
             >
-              2 Images
+              2 Image Mode (Front & Back)
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 rounded-lg p-4 bg-slate-950/50">
-              <label className="cursor-pointer flex flex-col items-center w-full">
-                <span className="text-sm font-semibold mb-2">Front Image</span>
-                {frontPreview ? (
-                  <img src={frontPreview} alt="Front preview" className="max-h-48 object-contain rounded-md" />
-                ) : (
-                  <div className="py-8 text-slate-500 text-center">Click to upload Front</div>
-                )}
-                <input type="file" accept="image/*" onChange={handleFrontChange} className="hidden" />
-              </label>
-            </div>
-
-            {mode === '2' && (
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 rounded-lg p-4 bg-slate-950/50">
-                <label className="cursor-pointer flex flex-col items-center w-full">
-                  <span className="text-sm font-semibold mb-2">Back Image</span>
-                  {backPreview ? (
-                    <img src={backPreview} alt="Back preview" className="max-h-48 object-contain rounded-md" />
-                  ) : (
-                    <div className="py-8 text-slate-500 text-center">Click to upload Back</div>
-                  )}
-                  <input type="file" accept="image/*" onChange={handleBackChange} className="hidden" />
-                </label>
-              </div>
-            )}
+          {/* Unified Single Drop Zone */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-6 transition-colors min-h-[220px] ${
+              isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-950/50'
+            }`}
+          >
+            <label className="cursor-pointer flex flex-col items-center w-full">
+              {!frontPreview ? (
+                <div className="py-8 text-center space-y-2">
+                  <p className="text-slate-300 font-medium">
+                    Drag & drop {mode === '2' ? 'both card images' : 'card image'} here
+                  </p>
+                  <p className="text-slate-500 text-sm">
+                    or <span className="text-blue-400 underline font-medium">click to browse</span>
+                  </p>
+                </div>
+              ) : (
+                <div className="w-full flex flex-col items-center space-y-4">
+                  <div className="flex gap-6 justify-center items-center flex-wrap">
+                    {frontPreview && (
+                      <div className="flex flex-col items-center">
+                        <span className="text-xs text-slate-400 mb-1 font-semibold uppercase">Front</span>
+                        <img src={frontPreview} alt="Front preview" className="h-40 object-contain rounded-md border border-slate-700" />
+                      </div>
+                    )}
+                    {backPreview && (
+                      <div className="flex flex-col items-center">
+                        <span className="text-xs text-slate-400 mb-1 font-semibold uppercase">Back</span>
+                        <img src={backPreview} alt="Back preview" className="h-40 object-contain rounded-md border border-slate-700" />
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500">Click or drop new files to replace</p>
+                </div>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                multiple={mode === '2'}
+                onChange={handleFileInputChange}
+                className="hidden"
+              />
+            </label>
           </div>
+
+          {(frontPreview || backPreview) && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={clearImages}
+                className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+              >
+                Clear Images
+              </button>
+            </div>
+          )}
 
           <button
             type="submit"
