@@ -1,16 +1,19 @@
-import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Home() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-6">
-      <h1 className="text-4xl font-bold mb-4">Pioneer Card Vault</h1>
-      <p className="text-slate-400 mb-8 font-medium">Sports Card Vault & Scanner Tools</p>
-      <Link 
-        href="/scan" 
-        className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold transition-colors shadow-lg"
-      >
-        Go to Card Scanner
-      </Link>
+      <div className="mb-6 relative w-72 h-72 md:w-96 md:h-96">
+        <Image
+          src="/logo.png"
+          alt="Pioneer Card Vault Logo"
+          fill
+          className="object-contain"
+          priority
+        />
+      </div>
+      <h1 className="text-4xl font-bold mb-2 text-center">Pioneer Card Vault</h1>
+      <p className="text-slate-400 font-medium text-lg">Coming Soon</p>
     </main>
   );
 }
