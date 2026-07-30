@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No front image provided.' }, { status: 400 });
     }
 
-    // 1. Convert Images to Base64 for Gemini Vision
+    // 1. Convert Images to Base64
     const parts: any[] = [];
 
     const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. Direct Vision OCR Prompt
+    // 2. Vision OCR Prompt
     const prompt = `
 You are an expert sports trading card evaluator and eBay listing specialist.
 Examine the attached card image(s) (Front and Back).
@@ -51,17 +51,9 @@ Examine the attached card image(s) (Front and Back).
 CRITICAL INSTRUCTION:
 - Perform direct Optical Character Recognition (OCR) on the images.
 - Read player names, team name, set name, card number, year, brand, and autograph status directly off the card images.
-- Example for this card:
-  * Player: Maason Smith
-  * Team: LSU Tigers
-  * Year: 2022
-  * Brand: Bowman / Topps
-  * Set: 2022 Bowman University Best Football
-  * Card Number: BA-MS
-  * Autographed: Yes
 
 Generate a JSON object with TWO keys:
-1. "title": An eBay title targeted CLOSE to 80 characters (max 80).
+1. "title": An eBay title targeted CLOSE to 80 characters as possible (max 80).
 2. "itemSpecifics": An object containing accurate values for these specific eBay fields:
    - "Sport"
    - "Player/Athlete"
@@ -91,15 +83,27 @@ Respond ONLY with valid raw JSON, no markdown codeblocks or prose.
 
     parts.unshift({ text: prompt });
 
-    // 3. Call Gemini REST API using latest stable endpoint
-    const aiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+    // 3. Call Gemini REST API using current model name (gemini-2.5-flash)
+    let aiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts }] }),
       }
     );
+
+    // Fallback model check if 2.5 endpoint isn't active on your project
+    if (!aiRes.ok) {
+      aiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts }] }),
+        }
+      );
+    }
 
     const aiData = await aiRes.json();
 
