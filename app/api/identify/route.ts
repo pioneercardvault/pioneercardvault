@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No image provided.' }, { status: 400 });
     }
 
-    // 1. Send front image to CardSight
+    // 1. Query CardSight API
     let cardSightData = null;
     if (apiKey) {
       try {
@@ -34,44 +34,57 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const cardMatch = cardSightData?.detections?.[0]?.card;
     let ebayPreFill = null;
 
-    // 2. Perform direct Gemini Vision OCR on Front & Back images
+    // 2. Perform Gemini OCR Vision Analysis for both indexed and unindexed cards
     if (geminiKey) {
       const parts: any[] = [];
 
-      // Add Front Image
+      // Convert Front Image to Base64
       const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
       parts.push({
         inline_data: {
           mime_type: 'image/jpeg',
-          data: frontBuffer.toString('base64')
-        }
+          data: frontBuffer.toString('base64'),
+        },
       });
 
-      // Add Back Image
+      // Convert Back Image to Base64 if available
       if (backFile) {
         const backBuffer = Buffer.from(await backFile.arrayBuffer());
         parts.push({
           inline_data: {
             mime_type: 'image/jpeg',
-            data: backBuffer.toString('base64')
-          }
+            data: backBuffer.toString('base64'),
+          },
         });
       }
 
       const prompt = `
 You are an expert sports card evaluator and eBay listing specialist.
-Examine the attached card images (Front and Back).
+Examine the attached card image(s) (Front and Back).
+
+CONTEXT FROM DATABASE SCAN:
+${JSON.stringify(cardMatch || 'No exact database match found.')}
 
 CRITICAL TASK:
-- Read all readable text directly from the card image (Front & Back).
-- Extract: Player/Athlete Name, Team/College, Sport, Year/Season, Brand/Manufacturer (e.g. Bowman, Topps, Panini), Set Name (e.g. Bowman University Best Football), Card Number (e.g. #BA-MS), Autograph status (look for signature and "Autograph Card" or "Certified Autograph Issue" text).
+- Read all visible text directly from the card image(s) (Front & Back).
+- If the database scan provided accurate info, refine and expand it.
+- IF THE DATABASE SCAN WAS WRONG OR UNINDEXED, OVERRIDE IT by extracting details directly off the card image:
+  1. Player/Athlete Name (e.g. Maason Smith)
+  2. Team/College (e.g. LSU Tigers)
+  3. Sport (e.g. Football, Baseball, Basketball)
+  4. Season/Year (e.g. 2022)
+  5. Manufacturer/Brand (e.g. Bowman, Topps, Panini)
+  6. Set Name (e.g. Bowman University Best Football)
+  7. Card Number (e.g. #BA-MS)
+  8. Autograph status (check for signature or "Certified Autograph Issue" text).
 
 Generate an optimal eBay listing JSON object with TWO keys:
 1. "title": An eBay title targeted CLOSE to 80 characters (max 80).
-   Format: [Year] [Manufacturer/Brand] [Set Name] [Player Name] [Card #] [Team] [Auto/Parallel if applicable] [Sport/Trading Card]
-2. "itemSpecifics": An object containing key-value pairs for these eBay specifics:
+   Format: [Year] [Brand/Manufacturer] [Set] [Player Name] [Card #] [Team] [Auto/RC/Parallel] [Sport/Trading Card]
+2. "itemSpecifics": An object containing accurate values for these eBay fields:
    - "Sport"
    - "Player/Athlete"
    - "Card Name"
@@ -101,13 +114,14 @@ Respond ONLY with valid raw JSON, no markdown codeblocks or prose.
       parts.unshift({ text: prompt });
 
       try {
-        const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts }]
-          })
-        });
+        const aiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts }] }),
+          }
+        );
 
         const aiData = await aiRes.json();
         const rawText = aiData?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -121,7 +135,6 @@ Respond ONLY with valid raw JSON, no markdown codeblocks or prose.
       }
     }
 
-    // Standardized payload format
     return NextResponse.json({
       detections: cardSightData?.detections || [],
       ebayPreFill,
@@ -136,8 +149,5 @@ Respond ONLY with valid raw JSON, no markdown codeblocks or prose.
 }
 
 export async function GET() {
-  return NextResponse.json(
-    { message: 'Card identification endpoint active.' },
-    { status: 200 }
-  );
+  return NextResponse.json({ message: 'Card identification endpoint active.' }, { status: 200 });
 }
