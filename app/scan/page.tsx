@@ -146,7 +146,6 @@ export default function ScanPage() {
 
       setResult(data);
 
-      // Use AI enriched eBay data if present, or fallback
       if (data?.ebayPreFill) {
         setEbayTitle(data.ebayPreFill.title || '');
         setItemSpecifics(data.ebayPreFill.itemSpecifics || {});
