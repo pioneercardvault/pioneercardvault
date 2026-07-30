@@ -16,40 +16,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No front image provided.' }, { status: 400 });
     }
 
-    // 1. Prepare Base64 Image Parts for Gemini Vision
-    const parts: any[] = [];
+    // 1. Query CardSight API
+    let cardSightData = null;
+    if (apiKey) {
+      try {
+        const outgoingFormData = new FormData();
+        outgoingFormData.append('image', frontFile, 'card.jpg');
 
-    const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
-    parts.push({
-      inline_data: {
-        mime_type: 'image/jpeg',
-        data: frontBuffer.toString('base64'),
-      },
-    });
+        const cardSightRes = await fetch('https://api.cardsight.ai/v1/identify/card', {
+          method: 'POST',
+          headers: { 'X-API-Key': apiKey },
+          body: outgoingFormData,
+        });
+        cardSightData = await cardSightRes.json().catch(() => null);
+      } catch (err) {
+        console.warn('CardSight API Error:', err);
+      }
+    }
 
-    if (backFile) {
-      const backBuffer = Buffer.from(await backFile.arrayBuffer());
+    let ebayPreFill = null;
+
+    // 2. Query Gemini Vision API (if GEMINI_API_KEY is configured)
+    if (geminiKey) {
+      const parts: any[] = [];
+
+      const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
       parts.push({
         inline_data: {
           mime_type: 'image/jpeg',
-          data: backBuffer.toString('base64'),
+          data: frontBuffer.toString('base64'),
         },
       });
-    }
 
-    // 2. Direct Gemini Vision Prompt - Reads exact text off the image
-    const prompt = `
-You are an expert sports card evaluator and eBay listing specialist.
-Examine the attached trading card image(s) (Front and Back).
+      if (backFile) {
+        const backBuffer = Buffer.from(await backFile.arrayBuffer());
+        parts.push({
+          inline_data: {
+            mime_type: 'image/jpeg',
+            data: backBuffer.toString('base64'),
+          },
+        });
+      }
+
+      const prompt = `
+You are an expert trading card evaluator and eBay listing specialist.
+Examine the attached card image(s) (Front and Back).
 
 CRITICAL TASK:
 - Read all readable text directly off the front and back of the card images.
 - Identify the exact Player/Athlete Name, Team Name, Sport, Year/Season, Brand/Manufacturer, Set Name, Card Number, and Autograph status.
-- DO NOT hallucinate or guess defaults like "2025 Panini Absolute" if it's not explicitly printed on the card.
 
 Generate a JSON object with two keys:
 1. "title": An optimized eBay title targeted as CLOSE to 80 characters as possible (max 80).
-   Format: [Year] [Manufacturer/Brand] [Set Name] [Player Name] [Card #] [Team] [Auto/RC/Parallel] [Sport/Trading Card]
+   Format: [Year] [Manufacturer/Brand] [Set Name] [Player Name] [Card #] [Team] [Auto/RC/Parallel if applicable] [Sport/Trading Card]
 2. "itemSpecifics": An object containing accurate values for these specific eBay fields:
    - "Sport"
    - "Player/Athlete"
@@ -77,13 +96,9 @@ Generate a JSON object with two keys:
 Respond ONLY with valid raw JSON. No markdown codeblocks (\`\`\`json) and no conversational text.
 `;
 
-    parts.unshift({ text: prompt });
+      parts.unshift({ text: prompt });
 
-    let ebayPreFill = null;
-
-    if (geminiKey) {
       try {
-        // Using standard gemini-2.5-flash / gemini-1.5-flash endpoint
         const aiRes = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
           {
@@ -99,18 +114,15 @@ Respond ONLY with valid raw JSON. No markdown codeblocks (\`\`\`json) and no con
         if (rawText) {
           const cleanedJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
           ebayPreFill = JSON.parse(cleanedJson);
-        } else {
-          console.warn('Gemini returned no candidate text:', aiData);
         }
       } catch (aiErr) {
-        console.warn('Gemini Vision API Exception:', aiErr);
+        console.warn('Gemini Vision API error:', aiErr);
       }
     }
 
-    // Return the AI-first payload
     return NextResponse.json({
+      detections: cardSightData?.detections || [],
       ebayPreFill,
-      status: 'success'
     });
   } catch (error: any) {
     console.error('API Route Error:', error);

@@ -143,12 +143,28 @@ export default function ScanPage() {
         throw new Error(`${data?.error || 'Scan failed'}${detailStr ? `\nDetails: ${detailStr}` : ''}`);
       }
 
+      // Priority 1: Gemini AI Enriched Pre-fill
       if (data?.ebayPreFill) {
         setEbayTitle(data.ebayPreFill.title || '');
         setItemSpecifics(data.ebayPreFill.itemSpecifics || {});
         setHasScanned(true);
+      } 
+      // Priority 2: Fallback to CardSight Detections if Gemini Key is absent/fails
+      else if (data?.detections?.[0]?.card) {
+        const card = data.detections[0].card;
+        const fallbackTitle = `${card.year || ''} ${card.manufacturer || ''} ${card.releaseName || ''} ${card.name || ''} #${card.number || ''} Trading Card`.replace(/\s+/g, ' ').trim().slice(0, 80);
+        
+        setEbayTitle(fallbackTitle);
+        setItemSpecifics({
+          'Player/Athlete': card.name || '',
+          Manufacturer: card.manufacturer || '',
+          Season: card.year || '',
+          Set: `${card.year || ''} ${card.releaseName || ''}`.trim(),
+          'Card Number': card.number ? `${card.number}` : '',
+        });
+        setHasScanned(true);
       } else {
-        throw new Error('AI Vision failed to extract card details from image.');
+        throw new Error('Could not identify card details. Please try another image.');
       }
     } catch (err: any) {
       console.error(err);
@@ -271,7 +287,7 @@ export default function ScanPage() {
             disabled={loading}
             className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 rounded-lg font-semibold transition-colors shadow-lg"
           >
-            {loading ? 'Reading Text from Images via Gemini AI...' : 'Scan Card & Prefill eBay'}
+            {loading ? 'Analyzing Card & Building Listing...' : 'Scan Card & Prefill eBay'}
           </button>
         </form>
 
