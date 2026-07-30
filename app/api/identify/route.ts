@@ -13,78 +13,44 @@ export async function POST(req: NextRequest) {
     const backFile = incomingFormData.get('back') as Blob | null;
 
     if (!frontFile) {
-      return NextResponse.json({ error: 'No image provided.' }, { status: 400 });
+      return NextResponse.json({ error: 'No front image provided.' }, { status: 400 });
     }
 
-    // 1. Query CardSight API
-    let cardSightData = null;
-    if (apiKey) {
-      try {
-        const outgoingFormData = new FormData();
-        outgoingFormData.append('image', frontFile, 'card.jpg');
+    // 1. Prepare Base64 Image Parts for Gemini Vision
+    const parts: any[] = [];
 
-        const cardSightRes = await fetch('https://api.cardsight.ai/v1/identify/card', {
-          method: 'POST',
-          headers: { 'X-API-Key': apiKey },
-          body: outgoingFormData,
-        });
-        cardSightData = await cardSightRes.json().catch(() => null);
-      } catch (err) {
-        console.warn('CardSight API error:', err);
-      }
-    }
+    const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
+    parts.push({
+      inline_data: {
+        mime_type: 'image/jpeg',
+        data: frontBuffer.toString('base64'),
+      },
+    });
 
-    const cardMatch = cardSightData?.detections?.[0]?.card;
-    let ebayPreFill = null;
-
-    // 2. Perform Gemini OCR Vision Analysis for both indexed and unindexed cards
-    if (geminiKey) {
-      const parts: any[] = [];
-
-      // Convert Front Image to Base64
-      const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
+    if (backFile) {
+      const backBuffer = Buffer.from(await backFile.arrayBuffer());
       parts.push({
         inline_data: {
           mime_type: 'image/jpeg',
-          data: frontBuffer.toString('base64'),
+          data: backBuffer.toString('base64'),
         },
       });
+    }
 
-      // Convert Back Image to Base64 if available
-      if (backFile) {
-        const backBuffer = Buffer.from(await backFile.arrayBuffer());
-        parts.push({
-          inline_data: {
-            mime_type: 'image/jpeg',
-            data: backBuffer.toString('base64'),
-          },
-        });
-      }
-
-      const prompt = `
+    // 2. Direct Gemini Vision Prompt - Reads exact text off the image
+    const prompt = `
 You are an expert sports card evaluator and eBay listing specialist.
-Examine the attached card image(s) (Front and Back).
-
-CONTEXT FROM DATABASE SCAN:
-${JSON.stringify(cardMatch || 'No exact database match found.')}
+Examine the attached trading card image(s) (Front and Back).
 
 CRITICAL TASK:
-- Read all visible text directly from the card image(s) (Front & Back).
-- If the database scan provided accurate info, refine and expand it.
-- IF THE DATABASE SCAN WAS WRONG OR UNINDEXED, OVERRIDE IT by extracting details directly off the card image:
-  1. Player/Athlete Name (e.g. Maason Smith)
-  2. Team/College (e.g. LSU Tigers)
-  3. Sport (e.g. Football, Baseball, Basketball)
-  4. Season/Year (e.g. 2022)
-  5. Manufacturer/Brand (e.g. Bowman, Topps, Panini)
-  6. Set Name (e.g. Bowman University Best Football)
-  7. Card Number (e.g. #BA-MS)
-  8. Autograph status (check for signature or "Certified Autograph Issue" text).
+- Read all readable text directly off the front and back of the card images.
+- Identify the exact Player/Athlete Name, Team Name, Sport, Year/Season, Brand/Manufacturer, Set Name, Card Number, and Autograph status.
+- DO NOT hallucinate or guess defaults like "2025 Panini Absolute" if it's not explicitly printed on the card.
 
-Generate an optimal eBay listing JSON object with TWO keys:
-1. "title": An eBay title targeted CLOSE to 80 characters (max 80).
-   Format: [Year] [Brand/Manufacturer] [Set] [Player Name] [Card #] [Team] [Auto/RC/Parallel] [Sport/Trading Card]
-2. "itemSpecifics": An object containing accurate values for these eBay fields:
+Generate a JSON object with two keys:
+1. "title": An optimized eBay title targeted as CLOSE to 80 characters as possible (max 80).
+   Format: [Year] [Manufacturer/Brand] [Set Name] [Player Name] [Card #] [Team] [Auto/RC/Parallel] [Sport/Trading Card]
+2. "itemSpecifics": An object containing accurate values for these specific eBay fields:
    - "Sport"
    - "Player/Athlete"
    - "Card Name"
@@ -108,12 +74,16 @@ Generate an optimal eBay listing JSON object with TWO keys:
    - "Condition Type"
    - "Card Condition"
 
-Respond ONLY with valid raw JSON, no markdown codeblocks or prose.
+Respond ONLY with valid raw JSON. No markdown codeblocks (\`\`\`json) and no conversational text.
 `;
 
-      parts.unshift({ text: prompt });
+    parts.unshift({ text: prompt });
 
+    let ebayPreFill = null;
+
+    if (geminiKey) {
       try {
+        // Using standard gemini-2.5-flash / gemini-1.5-flash endpoint
         const aiRes = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
           {
@@ -129,15 +99,18 @@ Respond ONLY with valid raw JSON, no markdown codeblocks or prose.
         if (rawText) {
           const cleanedJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
           ebayPreFill = JSON.parse(cleanedJson);
+        } else {
+          console.warn('Gemini returned no candidate text:', aiData);
         }
       } catch (aiErr) {
-        console.warn('Gemini API Error:', aiErr);
+        console.warn('Gemini Vision API Exception:', aiErr);
       }
     }
 
+    // Return the AI-first payload
     return NextResponse.json({
-      detections: cardSightData?.detections || [],
       ebayPreFill,
+      status: 'success'
     });
   } catch (error: any) {
     console.error('API Route Error:', error);

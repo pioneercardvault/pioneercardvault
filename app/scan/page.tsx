@@ -63,12 +63,12 @@ export default function ScanPage() {
   const [backPreview, setBackPreview] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const [result, setResult] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<'1' | '2'>('2');
 
   const [ebayTitle, setEbayTitle] = useState('');
   const [itemSpecifics, setItemSpecifics] = useState<Record<string, string>>({});
+  const [hasScanned, setHasScanned] = useState(false);
 
   const handleFiles = (files: FileList | File[]) => {
     const fileList = Array.from(files);
@@ -105,9 +105,9 @@ export default function ScanPage() {
     setFrontPreview(null);
     setBackPreview(null);
     setErrorMessage(null);
-    setResult(null);
     setEbayTitle('');
     setItemSpecifics({});
+    setHasScanned(false);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -118,7 +118,6 @@ export default function ScanPage() {
     }
 
     setLoading(true);
-    setResult(null);
     setErrorMessage(null);
 
     try {
@@ -144,34 +143,12 @@ export default function ScanPage() {
         throw new Error(`${data?.error || 'Scan failed'}${detailStr ? `\nDetails: ${detailStr}` : ''}`);
       }
 
-      setResult(data);
-
-      // Prioritize AI-generated listing pre-fill data
       if (data?.ebayPreFill) {
         setEbayTitle(data.ebayPreFill.title || '');
         setItemSpecifics(data.ebayPreFill.itemSpecifics || {});
+        setHasScanned(true);
       } else {
-        const card = data?.detections?.[0]?.card;
-        if (card) {
-          const parts = [
-            card.year,
-            card.manufacturer,
-            card.releaseName,
-            card.setName !== 'Base Set' ? card.setName : '',
-            card.name,
-            card.number ? `#${card.number}` : '',
-            'Trading Card'
-          ].filter(Boolean);
-
-          setEbayTitle(parts.join(' ').slice(0, 80));
-          setItemSpecifics({
-            'Player/Athlete': card.name || '',
-            Manufacturer: card.manufacturer || '',
-            Season: card.year || '',
-            Set: `${card.year || ''} ${card.releaseName || ''}`.trim(),
-            'Card Number': card.number || '',
-          });
-        }
+        throw new Error('AI Vision failed to extract card details from image.');
       }
     } catch (err: any) {
       console.error(err);
@@ -184,8 +161,6 @@ export default function ScanPage() {
   const handleSpecificChange = (key: string, value: string) => {
     setItemSpecifics((prev) => ({ ...prev, [key]: value }));
   };
-
-  const hasResult = Boolean(result?.ebayPreFill || result?.detections?.[0]?.card);
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
@@ -296,12 +271,12 @@ export default function ScanPage() {
             disabled={loading}
             className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 rounded-lg font-semibold transition-colors shadow-lg"
           >
-            {loading ? 'Analyzing Card Image & Building eBay Listing...' : 'Scan Card & Prefill eBay'}
+            {loading ? 'Reading Text from Images via Gemini AI...' : 'Scan Card & Prefill eBay'}
           </button>
         </form>
 
         {/* eBay Pre-fill Section */}
-        {hasResult && (
+        {hasScanned && (
           <div className="bg-slate-900 p-6 rounded-xl border border-blue-500/40 space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 className="text-xl font-bold text-blue-400">eBay Listing Pre-fill</h2>
