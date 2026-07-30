@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
 
     const incomingFormData = await req.formData();
     const frontFile = incomingFormData.get('front') as Blob | null;
+    const backFile = incomingFormData.get('back') as Blob | null;
 
     if (!frontFile) {
       return NextResponse.json({ error: 'No image provided.' }, { status: 400 });
@@ -34,26 +35,45 @@ export async function POST(req: NextRequest) {
     });
 
     const cardSightData = await cardSightRes.json().catch(() => null);
-
-    const card = cardSightData?.detections?.[0]?.card;
     let ebayPreFill = null;
 
-    // 2. Convert image to base64 for Gemini multimodal verification
-    const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
-    const base64Image = frontBuffer.toString('base64');
-
+    // 2. Prepare Base64 Image Parts for Gemini Vision
     const geminiKey = process.env.GEMINI_API_KEY;
 
     if (geminiKey) {
-      const prompt = `
-You are an expert sports trading card evaluator and eBay listing specialist.
-Analyze this card image alongside the initial scan metadata (if available):
-- Scanned Data: ${JSON.stringify(card || {})}
+      const parts: any[] = [];
 
-IMPORTANT: Carefully read the text on the front and back of the card in the image to verify player name, team, year, card number, sport, set, and whether it is autographed or an insert. Correct any obvious misidentifications from the scanned data.
+      // Add Front Image
+      const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
+      parts.push({
+        inline_data: {
+          mime_type: 'image/jpeg',
+          data: frontBuffer.toString('base64')
+        }
+      });
+
+      // Add Back Image if present
+      if (backFile) {
+        const backBuffer = Buffer.from(await backFile.arrayBuffer());
+        parts.push({
+          inline_data: {
+            mime_type: 'image/jpeg',
+            data: backBuffer.toString('base64')
+          }
+        });
+      }
+
+      const prompt = `
+You are an expert sports card evaluator and eBay listing specialist.
+Analyze the provided card image(s) (Front and Back).
+
+CRITICAL INSTRUCTIONS:
+- IGNORE any previous erroneous automated scans. Perform your own direct OCR and visual inspection of the images.
+- Read player names, brand, set name, year, card number, team name, and attributes directly off the card images.
+- Check if the card is autographed (e.g. signature on front, "Autograph Card" on back).
 
 Generate an optimal eBay listing JSON object with two keys:
-1. "title": An optimized eBay listing title, targeting as CLOSE to 80 characters as possible without exceeding 80 characters. Include high-value keywords (e.g. Year, Brand/Set, Player Name, Card Number, Team, Auto/Rookie/Parallel, Sport).
+1. "title": An eBay listing title, targeting as CLOSE to 80 characters as possible without exceeding 80 characters. Format: [Year] [Manufacturer/Brand] [Set/Release] [Player Name] [Card #] [Team] [Auto/Parallel/RC if applicable] [Sport/Trading Card].
 2. "itemSpecifics": An object containing accurate values for these specific eBay fields:
    - "Sport"
    - "Player/Athlete"
@@ -78,27 +98,18 @@ Generate an optimal eBay listing JSON object with two keys:
    - "Condition Type"
    - "Card Condition"
 
-Respond with ONLY valid raw JSON, no markdown codeblocks.
+Respond ONLY with raw JSON, no markdown codeblocks or extra prose.
 `;
+
+      // Prompt goes first
+      parts.unshift({ text: prompt });
 
       try {
         const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: prompt },
-                  {
-                    inline_data: {
-                      mime_type: 'image/jpeg',
-                      data: base64Image
-                    }
-                  }
-                ]
-              }
-            ]
+            contents: [{ parts }]
           })
         });
 
@@ -110,7 +121,7 @@ Respond with ONLY valid raw JSON, no markdown codeblocks.
           ebayPreFill = JSON.parse(cleanedJson);
         }
       } catch (aiErr) {
-        console.warn('AI Enrichment Fallback Error:', aiErr);
+        console.warn('Gemini Vision API Error:', aiErr);
       }
     }
 
