@@ -146,6 +146,7 @@ export default function ScanPage() {
 
       setResult(data);
 
+      // Prioritize AI-generated listing pre-fill data
       if (data?.ebayPreFill) {
         setEbayTitle(data.ebayPreFill.title || '');
         setItemSpecifics(data.ebayPreFill.itemSpecifics || {});
@@ -184,7 +185,7 @@ export default function ScanPage() {
     setItemSpecifics((prev) => ({ ...prev, [key]: value }));
   };
 
-  const cardMatch = result?.detections?.[0]?.card || result?.ebayPreFill;
+  const hasResult = Boolean(result?.ebayPreFill || result?.detections?.[0]?.card);
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
@@ -249,13 +250,13 @@ export default function ScanPage() {
                     {frontPreview && (
                       <div className="flex flex-col items-center">
                         <span className="text-xs text-slate-400 mb-1 font-semibold uppercase">Front</span>
-                        <img src={frontPreview} alt="Front preview" className="h-44 object-contain rounded-md border border-slate-700" />
+                        <img src={frontPreview || ''} alt="Front preview" className="h-44 object-contain rounded-md border border-slate-700" />
                       </div>
                     )}
                     {backPreview && (
                       <div className="flex flex-col items-center">
                         <span className="text-xs text-slate-400 mb-1 font-semibold uppercase">Back</span>
-                        <img src={backPreview} alt="Back preview" className="h-44 object-contain rounded-md border border-slate-700" />
+                        <img src={backPreview || ''} alt="Back preview" className="h-44 object-contain rounded-md border border-slate-700" />
                       </div>
                     )}
                   </div>
@@ -300,7 +301,7 @@ export default function ScanPage() {
         </form>
 
         {/* eBay Pre-fill Section */}
-        {cardMatch && (
+        {hasResult && (
           <div className="bg-slate-900 p-6 rounded-xl border border-blue-500/40 space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h2 className="text-xl font-bold text-blue-400">eBay Listing Pre-fill</h2>
