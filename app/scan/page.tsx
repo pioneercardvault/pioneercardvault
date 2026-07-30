@@ -152,14 +152,22 @@ export default function ScanPage() {
       } else {
         const card = data?.detections?.[0]?.card;
         if (card) {
-          setEbayTitle(`${card.year} ${card.manufacturer} ${card.releaseName} ${card.name} #${card.number} LA Dodgers Card`);
+          const parts = [
+            card.year,
+            card.manufacturer,
+            card.releaseName,
+            card.setName !== 'Base Set' ? card.setName : '',
+            card.name,
+            card.number ? `#${card.number}` : '',
+            'Trading Card'
+          ].filter(Boolean);
+
+          setEbayTitle(parts.join(' ').slice(0, 80));
           setItemSpecifics({
-            Sport: 'Baseball',
             'Player/Athlete': card.name || '',
-            Manufacturer: card.manufacturer || 'Topps',
+            Manufacturer: card.manufacturer || '',
             Season: card.year || '',
-            Set: `${card.year} ${card.releaseName}`,
-            Team: 'Los Angeles Dodgers',
+            Set: `${card.year || ''} ${card.releaseName || ''}`.trim(),
             'Card Number': card.number || '',
           });
         }
@@ -176,7 +184,7 @@ export default function ScanPage() {
     setItemSpecifics((prev) => ({ ...prev, [key]: value }));
   };
 
-  const cardMatch = result?.detections?.[0]?.card;
+  const cardMatch = result?.detections?.[0]?.card || result?.ebayPreFill;
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-4 md:p-8 flex flex-col items-center">
@@ -287,7 +295,7 @@ export default function ScanPage() {
             disabled={loading}
             className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 rounded-lg font-semibold transition-colors shadow-lg"
           >
-            {loading ? 'Analyzing Card & Generating eBay Details via AI...' : 'Scan Card & Prefill eBay'}
+            {loading ? 'Analyzing Card Image & Building eBay Listing...' : 'Scan Card & Prefill eBay'}
           </button>
         </form>
 

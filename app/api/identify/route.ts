@@ -16,7 +16,6 @@ export async function POST(req: NextRequest) {
 
     const incomingFormData = await req.formData();
     const frontFile = incomingFormData.get('front') as Blob | null;
-    const backFile = incomingFormData.get('back') as Blob | null;
 
     if (!frontFile) {
       return NextResponse.json({ error: 'No image provided.' }, { status: 400 });
@@ -36,34 +35,25 @@ export async function POST(req: NextRequest) {
 
     const cardSightData = await cardSightRes.json().catch(() => null);
 
-    if (!cardSightRes.ok) {
-      return NextResponse.json(
-        { 
-          error: `CardSight API returned status ${cardSightRes.status}`, 
-          details: cardSightData || 'No response body returned from API.'
-        },
-        { status: cardSightRes.status }
-      );
-    }
-
     const card = cardSightData?.detections?.[0]?.card;
     let ebayPreFill = null;
 
-    // 2. Perform AI Enrichment for full eBay Item Specifics & 80-char Title
-    if (card) {
+    // 2. Convert image to base64 for Gemini multimodal verification
+    const frontBuffer = Buffer.from(await frontFile.arrayBuffer());
+    const base64Image = frontBuffer.toString('base64');
+
+    const geminiKey = process.env.GEMINI_API_KEY;
+
+    if (geminiKey) {
       const prompt = `
-You are an expert sports card collector and eBay listing specialist.
-Given this identified trading card metadata:
-- Player/Card Name: ${card.name}
-- Year: ${card.year}
-- Manufacturer: ${card.manufacturer}
-- Release: ${card.releaseName}
-- Set Name: ${card.setName}
-- Card Number: ${card.number}
-- Attributes: ${JSON.stringify(card.attributes || [])}
+You are an expert sports trading card evaluator and eBay listing specialist.
+Analyze this card image alongside the initial scan metadata (if available):
+- Scanned Data: ${JSON.stringify(card || {})}
+
+IMPORTANT: Carefully read the text on the front and back of the card in the image to verify player name, team, year, card number, sport, set, and whether it is autographed or an insert. Correct any obvious misidentifications from the scanned data.
 
 Generate an optimal eBay listing JSON object with two keys:
-1. "title": An eBay listing title, targeting as CLOSE to 80 characters as possible without going over 80. Include high-value keywords (e.g., Year, Manufacturer, Set, Player, Card Number, Team, RC/Insert/Parallel if applicable, Sport).
+1. "title": An optimized eBay listing title, targeting as CLOSE to 80 characters as possible without exceeding 80 characters. Include high-value keywords (e.g. Year, Brand/Set, Player Name, Card Number, Team, Auto/Rookie/Parallel, Sport).
 2. "itemSpecifics": An object containing accurate values for these specific eBay fields:
    - "Sport"
    - "Player/Athlete"
@@ -92,12 +82,23 @@ Respond with ONLY valid raw JSON, no markdown codeblocks.
 `;
 
       try {
-        // AI enrichment call using standard fetch to an LLM provider or local fallback logic
-        const aiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + (process.env.GEMINI_API_KEY || process.env.CARDSIGHT_API_KEY), {
+        const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }]
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: 'image/jpeg',
+                      data: base64Image
+                    }
+                  }
+                ]
+              }
+            ]
           })
         });
 
@@ -109,7 +110,7 @@ Respond with ONLY valid raw JSON, no markdown codeblocks.
           ebayPreFill = JSON.parse(cleanedJson);
         }
       } catch (aiErr) {
-        console.warn('AI Enrichment Fallback:', aiErr);
+        console.warn('AI Enrichment Fallback Error:', aiErr);
       }
     }
 
